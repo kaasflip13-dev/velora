@@ -478,60 +478,58 @@ function collision() {
 // PLAYER
 // ==========================================
 
-const keys={};
-
-addEventListener("keydown",e=>{
-  const k=e.key.toLowerCase();
-  keys[k]=true;
-
-  if(["arrowup","arrowdown","arrowleft","arrowright"," "].includes(k)){
-    e.preventDefault();
-  }
-
-  if(k==="escape"){
-    if(state==="playing")pauseGame();
-    else if(state==="paused")resumeGame();
-  }
-});
-
-addEventListener("keyup",e=>{
-  keys[e.key.toLowerCase()]=false;
-});
 
 function updatePlayer(dt) {
-  const forward=keys.w||keys.arrowup;
-  const backward=keys.s||keys.arrowdown;
-  const left=keys.a||keys.arrowleft;
-  const right=keys.d||keys.arrowright;
+  const forward = keys.w || keys.arrowup;
+  const backward = keys.s || keys.arrowdown;
+  const left = keys.a || keys.arrowleft;
+  const right = keys.d || keys.arrowright;
 
-  if(forward)player.speed+=player.acceleration*dt;
-  if(backward)player.speed-=player.acceleration*1.4*dt;
-
-  if(!forward&&!backward){
-    player.speed*=Math.pow(.985,dt);
+  // GAS EN REMMEN
+  if (forward) {
+    player.speed += player.acceleration * dt;
+  } else if (backward) {
+    if (player.speed > 0.3) {
+      player.speed -= player.acceleration * 2.2 * dt;
+    } else {
+      player.speed -= player.acceleration * dt;
+    }
+  } else {
+    player.speed *= Math.pow(0.97, dt);
   }
 
-  player.speed=Math.max(-3,Math.min(player.maxSpeed,player.speed));
+  player.speed = Math.max(-3.5, Math.min(player.maxSpeed, player.speed));
 
-  const steering=Math.min(1,Math.abs(player.speed)/3);
+  // STUREN
+  const steeringInput = (right ? 1 : 0) - (left ? 1 : 0);
+  const speedFactor = Math.min(1, Math.max(0.35, Math.abs(player.speed) / 4));
+  const reverseFactor = player.speed < 0 ? -1 : 1;
 
-  if(left)player.angle-=player.turn*steering*dt*Math.sign(player.speed);
-  if(right)player.angle+=player.turn*steering*dt*Math.sign(player.speed);
+  player.angle += steeringInput * player.turn * speedFactor * reverseFactor * dt;
 
-  player.x+=Math.sin(player.angle)*player.speed*dt;
-  player.y-=Math.cos(player.angle)*player.speed*dt;
+  // BEWEGING
+  const oldX = player.x;
+  const oldY = player.y;
 
-  if(player.speed>0){
-    const travelled=player.speed*dt*.13;
-    totalDistance+=travelled;
-    missionDistance+=travelled;
+  player.x += Math.sin(player.angle) * player.speed * dt;
+  player.y -= Math.cos(player.angle) * player.speed * dt;
+
+  // AFSTAND
+  if (player.speed > 0) {
+    const travelled = player.speed * dt * 0.13;
+    totalDistance += travelled;
+    missionDistance += travelled;
   }
 
+  // BOTSINGEN
   collision();
 
-  camera.x+=(player.x-camera.x)*Math.min(1,.10*dt);
-  camera.y+=(player.y-camera.y)*Math.min(1,.10*dt);
+  // Camera volgt de auto
+  const smooth = 1 - Math.pow(0.88, dt);
+  camera.x += (player.x - camera.x) * smooth;
+  camera.y += (player.y - camera.y) * smooth;
 }
+
 
 // ==========================================
 // MISSIONS
