@@ -1,816 +1,346 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <link rel="icon" type="image/png" href="favicon.png">
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>SpaceBots Ultra</title>
-  <link rel="stylesheet" href="style.css">
-</head>
 
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StreetDrive</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101820;color:white;font-family:Arial;overflow:hidden}
+canvas{display:block;width:100vw;height:100vh;background:#43834c}
+#menu{position:fixed;inset:0;background:linear-gradient(135deg,#101820,#253b49);display:flex;align-items:center;justify-content:center;z-index:5}
+.panel{text-align:center;background:#1b2935;padding:40px;border:1px solid #405464;border-radius:20px;width:min(420px,90%)}
+h1{font-size:42px;margin:0 0 8px;color:#70e6a1}
+button{background:#70e6a1;color:#102019;border:0;padding:14px 25px;border-radius:9px;font-size:17px;font-weight:bold;cursor:pointer;margin:7px}
+button:hover{background:#a1ffc2}
+#hud{position:fixed;top:15px;left:15px;background:#14212ddd;padding:15px;border-radius:12px;line-height:1.8;display:none}
+#pause{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:4}
+#garage{position:fixed;inset:0;background:#101820ee;display:none;align-items:center;justify-content:center;z-index:6}
+.small{color:#aab9c4;font-size:13px}
+</style>
+</head>
 <body>
 
-  <!-- ================= AUTH GATE ================= -->
-  <section id="authGateScreen" class="screen">
-
-    <div class="stars"></div>
-
-    <div class="auth-gate">
-
-      <div class="logo-icon" style="margin:0 auto 20px;">✦</div>
-
-      <h1>SPACEBOTS</h1>
-      <p class="tag">ULTRA EDITION</p>
-
-      <p class="auth-gate-text">
-        Sign in with Google to play. Your progress is saved only in
-        the cloud, so you can play on any device with the
-        same save.
-      </p>
-
-      <button id="googleLoginBtn" class="google-btn">
-        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.84 2.09-1.8 2.73v2.27h2.92c1.7-1.57 2.68-3.88 2.68-6.64z"/>
-          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.17l-2.92-2.27c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.71H.96v2.34C2.44 15.98 5.48 18 9 18z"/>
-          <path fill="#FBBC05" d="M3.97 10.71A5.4 5.4 0 0 1 3.68 9c0-.59.1-1.17.29-1.71V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.34z"/>
-          <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.95l3.01 2.34C4.68 5.16 6.66 3.58 9 3.58z"/>
-        </svg>
-        Sign in with Google
-      </button>
-
-      <p id="authGateStatus" class="auth-gate-status">
-        Checking cloud...
-      </p>
-
-    </div>
-
-  </section>
-
-
-  <!-- ================= START MENU ================= -->
-  <section id="startScreen" class="screen" style="display:none;">
-
-    <div class="stars"></div>
-
-    <div class="logo">
-      <div class="logo-icon">✦</div>
-      <div>
-        <h1>SPACEBOTS</h1>
-        <p>ULTRA EDITION</p>
-      </div>
-
-      <div id="accountBox" class="account-box">
-
-        <div id="userInfo" class="user-info">
-          <img id="userPhoto" src="" alt="">
-          <span id="userName"></span>
-          <span id="cloudStatus" class="cloud-status">☁ synced</span>
-          <button id="logoutBtn" class="secondary-button small-btn">LOG OUT</button>
-        </div>
-
-      </div>
-    </div>
-
-    <div class="hero">
-      <div class="hero-text">
-        <span class="tag">ULTRA EDITION</span>
-        <h2>FIGHT THE BOTS</h2>
-        <p>
-          Survive endless waves, defeat giant bosses,
-          buy new weapons and upgrade your bot.
-        </p>
-
-        <button id="startBtn" class="main-button">
-          ▶ START GAME
-        </button>
-
-        <button id="continueBtn" class="secondary-button">
-          CONTINUE
-        </button>
-      </div>
-
-      <div class="hero-stats">
-        <div>
-          <strong id="menuHighscore">0</strong>
-          <span>HIGHSCORE</span>
-        </div>
-        <div>
-          <strong>12+</strong>
-          <span>ROBOTS</span>
-        </div>
-        <div>
-          <strong>6</strong>
-          <span>WEAPONS</span>
-        </div>
-        <div>
-          <strong>5</strong>
-          <span>MAPS</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="menu-grid">
-
-      <button class="menu-card" data-panel="weaponsPanel">
-        <span>🔫</span>
-        <b>ARMORY</b>
-        <small>Choose your weapon</small>
-      </button>
-
-      <button class="menu-card" data-panel="upgradePanel">
-        <span>⚡</span>
-        <b>UPGRADES</b>
-        <small>Make your robot stronger</small>
-      </button>
-
-      <button class="menu-card" data-panel="mapPanel">
-        <span>🌌</span>
-        <b>MAPS</b>
-        <small>Choose a planet</small>
-      </button>
-
-      <button class="menu-card" data-panel="skinsPanel">
-        <span>🎨</span>
-        <b>SKINS</b>
-        <small>Customize your robot</small>
-      </button>
-
-      <button class="menu-card" data-panel="achievementsPanel">
-        <span>🏆</span>
-        <b>ACHIEVEMENTS</b>
-        <small>View your achievements</small>
-      </button>
-
-      <button class="menu-card" data-panel="leaderboardPanel">
-        <span>📡</span>
-        <b>LEADERBOARD</b>
-        <small>Top pilots worldwide</small>
-      </button>
-
-      <button class="menu-card" data-panel="settingsPanel">
-        <span>⚙️</span>
-        <b>SETTINGS</b>
-        <small>Adjust the game</small>
-      </button>
-
-      <button class="menu-card" data-panel="helpPanel">
-        <span>❓</span>
-        <b>HOW TO PLAY</b>
-        <small>Controls</small>
-      </button>
-
-      <button class="menu-card" data-panel="rulesPanel">
-        <span>📜</span>
-        <b>RULES</b>
-        <small>Game and leaderboard rules</small>
-      </button>
-
-      <button class="menu-card" data-panel="creditsPanel">
-        <span>🎖️</span>
-        <b>CREDITS</b>
-        <small>Who made this game</small>
-      </button>
-
-    </div>
-
-  </section>
-
-
-  <!-- ================= WEAPONS ================= -->
-
-  <section id="weaponsPanel" class="subscreen">
-    <div class="panel-box">
-
-      <button class="backBtn">← BACK</button>
-
-      <h2>🔫 ARMORY</h2>
-      <p>Choose your favorite weapon.</p>
-
-      <div id="weaponCards" class="cards"></div>
-
-    </div>
-  </section>
-
-
-  <!-- ================= UPGRADES ================= -->
-
-  <section id="upgradePanel" class="subscreen">
-    <div class="panel-box">
-
-      <button class="backBtn">← BACK</button>
-
-      <h2>⚡ UPGRADES</h2>
-
-      <div class="credits">
-        Credits:
-        <strong id="creditsValue">0</strong>
-      </div>
-
-      <div id="upgradeCards" class="cards"></div>
-
-    </div>
-  </section>
-
-
-  <!-- ================= MAPS ================= -->
-
-  <section id="mapPanel" class="subscreen">
-    <div class="panel-box">
-
-      <button class="backBtn">← BACK</button>
-
-      <h2>🌌 MAPS</h2>
-
-      <div id="mapCards" class="cards"></div>
-
-    </div>
-  </section>
-
-
-  <!-- ================= SKINS ================= -->
-
-  <section id="skinsPanel" class="subscreen">
-    <div class="panel-box">
-
-      <button class="backBtn">← BACK</button>
-
-      <h2>🎨 SKINS</h2>
-      <p>Change your robot's color.</p>
-
-      <div class="credits">
-        Credits:
-        <strong id="skinsCreditsValue">0</strong>
-      </div>
-
-      <div id="skinCards" class="cards"></div>
-
-    </div>
-  </section>
-
-
-  <!-- ================= LEADERBOARD ================= -->
-
-  <section id="leaderboardPanel" class="subscreen">
-    <div class="panel-box">
-
-      <button class="backBtn">← BACK</button>
-
-      <h2>📡 LEADERBOARD</h2>
-      <p>The best pilots worldwide, live from the cloud.</p>
-
-      <div id="leaderboardLoggedOut" class="help-text" style="display:none;">
-        Log in with Google to appear on the leaderboard and view the
-        live leaderboard.
-      </div>
-
-      <div id="leaderboardStatus" class="help-text">
-        Loading leaderboard...
-      </div>
-
-      <div id="leaderboardList" class="leaderboard-list"></div>
-
-    </div>
-  </section>
-
-
-  <!-- ================= RULES ================= -->
-
-  <section id="rulesPanel" class="subscreen">
-    <div class="panel-box">
-
-      <button class="backBtn">← BACK</button>
-
-      <h2>📜 RULES</h2>
-      <p>Speel eerlijk, heb plezier, en respecteer andere piloten.</p>
-
-      <div class="controls">
-
-        <div>
-          <b>🎯 Fair Play</b>
-          <span>
-            Don't use cheats, macros, bots or exploits to artificially
-            boost your score, credits or leaderboard position.
-          </span>
-        </div>
-
-        <div>
-          <b>📡 Leaderboard</b>
-          <span>
-            When you log in, your name, profile photo and best score
-            become publicly visible on the leaderboard for all players.
-          </span>
-        </div>
-
-        <div>
-          <b>💾 Cloud Save</b>
-          <span>
-            Your progress is automatically saved to the cloud once
-            you're logged in, so you can keep playing on any device.
-          </span>
-        </div>
-
-        <div>
-          <b>🙊 Respect</b>
-          <span>
-            Don't choose offensive or fake names. Names considered
-            offensive may be removed from the leaderboard.
-          </span>
-        </div>
-
-        <div>
-          <b>🔒 Privacy</b>
-          <span>
-            Log out on shared devices. Your gameplay stats aren't
-            sensitive, but your account is still yours.
-          </span>
-        </div>
-
-      </div>
-
-      <p class="help-text">
-        These rules keep SpaceBots Ultra fun and fair for everyone.
-        Play smart, climb the leaderboard, and defeat the bosses! 🤖
-      </p>
-
-    </div>
-  </section>
-
-
-  <!-- ================= CREDITS ================= -->
-
-  <section id="creditsPanel" class="subscreen">
-    <div class="panel-box">
-
-      <button class="backBtn">← BACK</button>
-
-      <h2>🎖️ CREDITS &amp; ATTRIBUTION</h2>
-      <p>The people behind SpaceBots Ultra.</p>
-
-      <div class="cards credits-grid">
-
-        <div class="card">
-          <div class="card-icon">👑</div>
-          <h3>Ivan Aubel</h3>
-          <p class="credits-role">60% owner — SpaceBots</p>
-          <p>Created the project.</p>
-        </div>
-
-        <div class="card">
-          <div class="card-icon">🛠️</div>
-          <h3>Sven Hildering</h3>
-          <p class="credits-role">40% owner — SpaceBots</p>
-          <p>
-            Built the database, skins, user system, saving,
-            how-to-play and rules.
-          </p>
-        </div>
-
-      </div>
-
-    </div>
-  </section>
-
-
-  <!-- ================= ACHIEVEMENTS ================= -->
-
-  <section id="achievementsPanel" class="subscreen">
-    <div class="panel-box">
-
-      <button class="backBtn">← BACK</button>
-
-      <h2>🏆 ACHIEVEMENTS</h2>
-
-      <div class="achievement-summary">
-        <div>
-          <b id="achievementCount">0</b>
-          <span>ACHIEVEMENTS</span>
-        </div>
-
-        <div>
-          <b id="achievementKills">0</b>
-          <span>KILLS</span>
-        </div>
-
-        <div>
-          <b id="achievementWave">0</b>
-          <span>BEST WAVE</span>
-        </div>
-      </div>
-
-      <div id="achievementCards" class="cards"></div>
-
-    </div>
-  </section>
-
-
-  <!-- ================= SETTINGS ================= -->
-
-  <section id="settingsPanel" class="subscreen">
-    <div class="panel-box">
-
-      <button class="backBtn">← BACK</button>
-
-      <h2>⚙️ SETTINGS</h2>
-
-      <div class="setting-row">
-        <div>
-          <b>Username</b>
-          <small>This name is visible on the leaderboard</small>
-        </div>
-
-        <div class="username-field">
-          <input
-            type="text"
-            id="usernameInput"
-            maxlength="24"
-            placeholder="Pilot"
-          >
-          <button id="usernameSaveBtn" class="secondary-button small-btn">
-            SAVE
-          </button>
-        </div>
-      </div>
-
-      <div class="setting-row">
-        <div>
-          <b>Sound</b>
-          <small>Shooting and explosion sounds</small>
-        </div>
-        <input type="checkbox" id="soundToggle" checked>
-      </div>
-
-      <div class="setting-row">
-        <div>
-          <b>Particles</b>
-          <small>Explosions and energy effects</small>
-        </div>
-        <input type="checkbox" id="particlesToggle" checked>
-      </div>
-
-      <div class="setting-row">
-        <div>
-          <b>Screen Shake</b>
-          <small>Camera effect on heavy hits</small>
-        </div>
-        <input type="checkbox" id="shakeToggle" checked>
-      </div>
-
-      <div class="setting-row">
-        <div>
-          <b>Auto Fire</b>
-          <small>Keep firing while your mouse button is held down</small>
-        </div>
-        <input type="checkbox" id="autoFireToggle">
-      </div>
-
-      <div class="setting-row">
-        <div>
-          <b>Difficulty</b>
-          <small>Adjust the enemies</small>
-        </div>
-
-        <select id="difficultySelect">
-          <option value="easy">Easy</option>
-          <option value="normal" selected>Normal</option>
-          <option value="hard">Hard</option>
-        </select>
-      </div>
-
-      <button id="resetSaveBtn" class="danger-button">
-        RESET SAVE
-      </button>
-
-    </div>
-  </section>
-
-
-  <!-- ================= HELP ================= -->
-
-  <section id="helpPanel" class="subscreen">
-    <div class="panel-box">
-
-      <button class="backBtn">← BACK</button>
-
-      <h2>❓ HOW TO PLAY</h2>
-
-      <div class="controls">
-
-        <div>
-          <b>W A S D</b>
-          <span>Move</span>
-        </div>
-
-        <div>
-          <b>MOUSE CLICK</b>
-          <span>Shoot</span>
-        </div>
-
-        <div>
-          <b>1 - 6</b>
-          <span>Choose weapon</span>
-        </div>
-
-        <div>
-          <b>P</b>
-          <span>Pause</span>
-        </div>
-
-        <div>
-          <b>ESC</b>
-          <span>Back to menu</span>
-        </div>
-
-      </div>
-
-      <p class="help-text">
-        Defeat robots, pick up energy, survive waves and defeat
-        the big bosses. There's no blood; all damage consists of
-        energy and explosion effects.
-      </p>
-
-    </div>
-  </section>
-
-
-  <!-- ================= GAME ================= -->
-
-  <section id="gameScreen" class="game-screen">
-
-    <canvas id="gameCanvas" width="1280" height="720"></canvas>
-
-    <!-- TOUCH CONTROLS (movement joystick, right side aims + fires) -->
-
-    <div id="touchJoystick" class="touch-joystick">
-      <div class="joystick-base">
-        <div id="joystickThumb" class="joystick-thumb"></div>
-      </div>
-      <small>MOVE</small>
-    </div>
-
-    <button id="mobilePauseBtn" class="mobile-pause-btn" aria-label="Pause">
-      ⏸
-    </button>
-
-    <!-- ROTATE DEVICE HINT (portrait phones only) -->
-
-    <div id="rotateHint" class="rotate-hint">
-      <div class="rotate-hint-box">
-        <div class="rotate-icon">📱</div>
-        <p>Rotate your device for the best experience</p>
-        <button id="rotateHintDismiss" class="secondary-button small-btn">
-          PLAY ANYWAY
-        </button>
-      </div>
-    </div>
-
-    <!-- HUD -->
-
-    <div class="hud">
-
-      <div class="hud-top">
-
-        <div class="brand-small">
-          SPACEBOTS
-          <span>ultra edition</span>
-        </div>
-
-        <div class="score-box">
-          <small>SCORE</small>
-          <b id="scoreText">0</b>
-        </div>
-
-        <div class="wave-box">
-          <small>WAVE</small>
-          <b id="waveText">1</b>
-          <div class="wave-progress">
-            <i id="waveProgress"></i>
-          </div>
-        </div>
-
-        <div class="combo-box">
-          <small>COMBO</small>
-          <b id="comboText">x1</b>
-        </div>
-
-        <div class="time-box">
-          <small>TIME</small>
-          <b id="timeText">00:00</b>
-        </div>
-
-        <div class="kills-box">
-          <small>KILLS</small>
-          <b id="killsText">0</b>
-        </div>
-
-      </div>
-
-
-      <div class="hud-bottom">
-
-        <div class="bars">
-
-          <div class="bar-row">
-            <span>HP</span>
-            <div class="bar">
-              <i id="hpBar"></i>
-            </div>
-            <b id="hpText">100</b>
-          </div>
-
-          <div class="bar-row">
-            <span>SHIELD</span>
-            <div class="bar">
-              <i id="shieldBar"></i>
-            </div>
-            <b id="shieldText">100</b>
-          </div>
-
-          <div class="bar-row">
-            <span>ENERGY</span>
-            <div class="bar">
-              <i id="energyBar"></i>
-            </div>
-            <b id="energyText">100</b>
-          </div>
-
-        </div>
-
-
-        <div id="weaponHud" class="weapon-hud">
-
-          <button id="weaponPrevBtn" class="weapon-arrow" aria-label="Previous weapon">‹</button>
-
-          <div id="weaponIcon">✊</div>
-
-          <div>
-            <small>WEAPON</small>
-            <b id="weaponName">fist</b>
-          </div>
-
-          <button id="weaponNextBtn" class="weapon-arrow" aria-label="Next weapon">›</button>
-
-          <span id="weaponStatus">READY</span>
-
-        </div>
-
-
-        <canvas id="miniMap" width="190" height="120"></canvas>
-
-      </div>
-
-    </div>
-
-
-    <!-- BOSS BAR -->
-
-    <div id="bossContainer" class="boss-container">
-
-      <div class="boss-name" id="bossName">
-        BOSS
-      </div>
-
-      <div class="boss-bar">
-        <i id="bossBar"></i>
-      </div>
-
-    </div>
-
-
-    <!-- WAVE BANNER -->
-
-    <div id="waveBanner" class="wave-banner">
-      <span>WAVE</span>
-      <b id="waveBannerNumber">1</b>
-    </div>
-
-
-    <!-- PICKUP MESSAGE -->
-
-    <div id="pickupNotice" class="pickup-notice">
-      ENERGY +25
-    </div>
-
-
-    <!-- COMBO -->
-
-    <div id="comboPopup" class="combo-popup">
-      COMBO x2
-    </div>
-
-
-    <!-- PAUSE -->
-
-    <div id="pauseOverlay" class="game-overlay">
-
-      <div class="overlay-box">
-
-        <h2>PAUSED</h2>
-        <p>Press P to continue.</p>
-
-        <button id="resumeBtn" class="main-button">
-          ▶ RESUME
-        </button>
-
-        <button id="pauseMenuBtn" class="secondary-button">
-          MENU
-        </button>
-
-      </div>
-
-    </div>
-
-
-    <!-- GAME OVER -->
-
-    <div id="gameOverOverlay" class="game-overlay">
-
-      <div class="overlay-box">
-
-        <h2>GAME OVER</h2>
-
-        <p>Your robot has been destroyed.</p>
-
-        <div class="result-grid">
-
-          <div>
-            <small>SCORE</small>
-            <b id="finalScore">0</b>
-          </div>
-
-          <div>
-            <small>WAVE</small>
-            <b id="finalWave">1</b>
-          </div>
-
-          <div>
-            <small>KILLS</small>
-            <b id="finalKills">0</b>
-          </div>
-
-        </div>
-
-        <p id="newRecordText" class="record">
-          ★ NEW RECORD ★
-        </p>
-
-        <button id="restartBtn" class="main-button">
-          ↻ RESTART
-        </button>
-
-        <button id="gameOverMenuBtn" class="secondary-button">
-          MENU
-        </button>
-
-      </div>
-
-    </div>
-
-
-    <!-- VICTORY -->
-
-    <div id="victoryOverlay" class="game-overlay">
-
-      <div class="overlay-box">
-
-        <h2>VICTORY!</h2>
-
-        <p>You have defeated the Star Destroyer.</p>
-
-        <div class="result-grid">
-
-          <div>
-            <small>SCORE</small>
-            <b id="victoryScore">0</b>
-          </div>
-
-          <div>
-            <small>WAVE</small>
-            <b id="victoryWave">10</b>
-          </div>
-
-          <div>
-            <small>KILLS</small>
-            <b id="victoryKills">0</b>
-          </div>
-
-        </div>
-
-        <button id="victoryMenuBtn" class="main-button">
-          MENU
-        </button>
-
-      </div>
-
-    </div>
-
-  </section>
-
-  <!-- ================= FIREBASE ================= -->
-  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-
-  <script src="app.js"></script>
-
+<canvas id="game"></canvas>
+
+<div id="menu">
+ <div class="panel">
+  <h1>STREETDRIVE</h1>
+  <p>Jouw stad. Jouw auto. Jouw avontuur.</p>
+  <p class="small">Rijd door de stad, ontwijk verkeer en verdien geld!</p>
+  <button onclick="startGame()">START RIJDEN</button>
+  <button onclick="openGarage()">GARAGE</button>
+  <p class="small">WASD / pijltjes om te rijden · ESC = pauze</p>
+ </div>
+</div>
+
+<div id="hud">
+ <b>STREETDRIVE</b><br>
+ 💰 Geld: €<span id="money">0</span><br>
+ 🚗 Auto: <span id="carname">Starter</span><br>
+ ⭐ Afstand: <span id="distance">0</span> m<br>
+ <span id="mission">Opdracht: rijd 500 meter!</span>
+</div>
+
+<div id="pause">
+ <div class="panel">
+  <h1>GEPAUZEERD</h1>
+  <button onclick="resumeGame()">VERDER</button>
+  <button onclick="backMenu()">HOOFDMENU</button>
+ </div>
+</div>
+
+<div id="garage">
+ <div class="panel">
+  <h1>GARAGE</h1>
+  <p id="garageInfo">Kies je auto</p>
+  <button onclick="buyCar()">KOOP SPORTAUTO (€500)</button>
+  <button onclick="closeGarage()">TERUG</button>
+ </div>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+let W,H;
+function resize(){
+ W=canvas.width=innerWidth;
+ H=canvas.height=innerHeight;
+}
+resize();
+addEventListener("resize",resize);
+
+let keys={};
+addEventListener("keydown",e=>{
+ keys[e.key.toLowerCase()]=true;
+ if(e.key==="Escape"&&running)pauseGame();
+});
+addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+
+let player={x:0,y:0,angle:0,speed:0};
+let cars=[];
+let trees=[];
+let buildings=[];
+let money=0;
+let distance=0;
+let running=false;
+let paused=false;
+let sportCar=false;
+let roadOffset=0;
+let lastTime=0;
+
+function makeWorld(){
+ cars=[];
+ trees=[];
+ buildings=[];
+
+ for(let i=0;i<16;i++){
+  cars.push({
+   x:(Math.random()-.5)*500,
+   y:-i*450-500,
+   speed:2+Math.random()*2,
+   color:["#e74c3c","#3498db","#f1c40f","#eeeeee","#9b59b6"][i%5]
+  });
+ }
+
+ for(let i=0;i<100;i++){
+  trees.push({
+   x:(Math.random()<.5?-1:1)*(300+Math.random()*500),
+   y:-Math.random()*8000
+  });
+ }
+
+ for(let i=0;i<40;i++){
+  buildings.push({
+   x:(Math.random()<.5?-1:1)*(330+Math.random()*350),
+   y:-i*250-200,
+   w:100+Math.random()*100,
+   h:100+Math.random()*130,
+   color:["#7d8992","#b6a18a","#647c89","#a18d78"][i%4]
+  });
+ }
+}
+
+function startGame(){
+ document.getElementById("menu").style.display="none";
+ document.getElementById("hud").style.display="block";
+ document.getElementById("pause").style.display="none";
+ running=true;
+ paused=false;
+ player={x:0,y:0,angle:0,speed:0};
+ distance=0;
+ makeWorld();
+ lastTime=performance.now();
+ requestAnimationFrame(loop);
+}
+
+function pauseGame(){
+ paused=true;
+ running=false;
+ document.getElementById("pause").style.display="flex";
+}
+
+function resumeGame(){
+ paused=false;
+ running=true;
+ document.getElementById("pause").style.display="none";
+ lastTime=performance.now();
+ requestAnimationFrame(loop);
+}
+
+function backMenu(){
+ running=false;
+ paused=false;
+ document.getElementById("pause").style.display="none";
+ document.getElementById("hud").style.display="none";
+ document.getElementById("menu").style.display="flex";
+}
+
+function openGarage(){
+ document.getElementById("garage").style.display="flex";
+ document.getElementById("garageInfo").innerText=
+ sportCar?"Sportauto gekocht!":"Je hebt €"+money+" en rijdt met de starter.";
+}
+function closeGarage(){
+ document.getElementById("garage").style.display="none";
+}
+function buyCar(){
+ if(sportCar){
+  document.getElementById("garageInfo").innerText="Je hebt deze auto al!";
+ }else if(money>=500){
+  money-=500;
+  sportCar=true;
+  document.getElementById("garageInfo").innerText="Sportauto gekocht!";
+  updateHUD();
+ }else{
+  document.getElementById("garageInfo").innerText="Je hebt nog €"+(500-money)+" nodig.";
+ }
+}
+
+function updateHUD(){
+ document.getElementById("money").innerText=money;
+ document.getElementById("distance").innerText=Math.floor(distance);
+ document.getElementById("carname").innerText=sportCar?"Sportauto":"Starter";
+ document.getElementById("mission").innerText=
+ distance>=500?"Opdracht voltooid! +€100": "Opdracht: rijd "+Math.max(0,500-Math.floor(distance))+" meter!";
+}
+
+function roundedRect(x,y,w,h,r,color){
+ ctx.fillStyle=color;
+ ctx.beginPath();
+ ctx.roundRect(x,y,w,h,r);
+ ctx.fill();
+}
+
+function drawCar(x,y,angle,color,scale=1){
+ ctx.save();
+ ctx.translate(x,y);
+ ctx.rotate(angle);
+ ctx.scale(scale,scale);
+
+ // Wielen
+ ctx.fillStyle="#10151a";
+ ctx.fillRect(-20,-29,9,17);
+ ctx.fillRect(11,-29,9,17);
+ ctx.fillRect(-20,12,9,17);
+ ctx.fillRect(11,12,9,17);
+
+ // Auto
+ roundedRect(-16,-32,32,64,8,color);
+ roundedRect(-12,-19,24,22,5,"#b6dce9");
+
+ ctx.fillStyle="#d9f5ff";
+ ctx.fillRect(-11,-16,22,5);
+
+ ctx.fillStyle="#ffe99b";
+ ctx.fillRect(-12,-29,7,4);
+ ctx.fillRect(5,-29,7,4);
+
+ ctx.fillStyle="#e74c3c";
+ ctx.fillRect(-12,26,7,4);
+ ctx.fillRect(5,26,7,4);
+
+ ctx.restore();
+}
+
+function drawWorld(){
+ ctx.fillStyle="#47834e";
+ ctx.fillRect(0,0,W,H);
+
+ // Gebouwen
+ buildings.forEach(b=>{
+  let y=((b.y+distance*2)%9000);
+  if(y>H+200)y-=9000;
+  let x=W/2+b.x;
+  ctx.fillStyle="#31433a";
+  ctx.fillRect(x+7,y+8,b.w,b.h);
+  ctx.fillStyle=b.color;
+  ctx.fillRect(x,y,b.w,b.h);
+  ctx.fillStyle="#354653";
+  for(let a=12;a<b.w-10;a+=28)
+   for(let c=12;c<b.h-10;c+=30)
+    ctx.fillRect(x+a,y+c,13,15);
+ });
+
+ // Bomen
+ trees.forEach(t=>{
+  let y=((t.y+distance*2)%9000);
+  if(y>H+50)y-=9000;
+  let x=W/2+t.x;
+  ctx.fillStyle="#573b27";
+  ctx.fillRect(x-4,y,8,20);
+  ctx.fillStyle="#205c35";
+  ctx.beginPath();ctx.arc(x,y,20,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#39834c";
+  ctx.beginPath();ctx.arc(x-7,y-5,11,0,Math.PI*2);ctx.fill();
+ });
+
+ // Weg
+ ctx.fillStyle="#343a40";
+ ctx.fillRect(W/2-190,0,380,H);
+
+ // Weg randen
+ ctx.fillStyle="#d5d5c7";
+ ctx.fillRect(W/2-195,0,5,H);
+ ctx.fillRect(W/2+190,0,5,H);
+
+ // Rijstroken
+ ctx.strokeStyle="#eee5a8";
+ ctx.lineWidth=4;
+ ctx.setLineDash([35,35]);
+ ctx.lineDashOffset=roadOffset;
+ ctx.beginPath();
+ ctx.moveTo(W/2,0);
+ ctx.lineTo(W/2,H);
+ ctx.stroke();
+ ctx.setLineDash([]);
+
+ // Verkeer
+ cars.forEach(c=>{
+  let y=((c.y+distance*2.5)% (H+400))-200;
+  drawCar(W/2+c.x,y,Math.PI,c.color,.85);
+ });
+
+ // Speler
+ drawCar(W/2+player.x,H*.72,player.angle,
+ sportCar?"#e84c3d":"#32a8dc",1.15);
+}
+
+function loop(time){
+ if(!running)return;
+ let dt=Math.min((time-lastTime)/16.67,2);
+ lastTime=time;
+
+ let acceleration=keys["w"]||keys["arrowup"];
+ let braking=keys["s"]||keys["arrowdown"];
+ let left=keys["a"]||keys["arrowleft"];
+ let right=keys["d"]||keys["arrowright"];
+
+ if(acceleration)player.speed+=.12*dt;
+ else if(braking)player.speed-=.18*dt;
+ else player.speed*=Math.pow(.985,dt);
+
+ player.speed=Math.max(-2,Math.min(sportCar?10:7,player.speed));
+
+ if(left)player.angle-=.045*dt;
+ if(right)player.angle+=.045*dt;
+
+ player.x+=Math.sin(player.angle)*player.speed*3*dt;
+ player.x=Math.max(-155,Math.min(155,player.x));
+
+ let forward=Math.max(0,player.speed);
+ distance+=forward*.15*dt;
+ roadOffset+=forward*4*dt;
+
+ cars.forEach(c=>{
+  c.y+=c.speed*dt;
+  if(c.y>H+300)c.y=-1000-Math.random()*1000;
+ });
+
+ // Geld verdienen
+ if(distance>=500&&distance<501){
+  money+=100;
+ }
+ updateHUD();
+
+ drawWorld();
+
+ // Bots en botsbotsingen
+ cars.forEach(c=>{
+  let y=((c.y+distance*2.5)%(H+400))-200;
+  if(Math.abs(c.x-player.x)<34&&Math.abs(y-H*.72)<48){
+   player.speed=0;
+   player.x+=player.x<0?-25:25;
+   player.x=Math.max(-150,Math.min(150,player.x));
+  }
+ });
+
+ requestAnimationFrame(loop);
+}
+
+updateHUD();
+</script>
 </body>
 </html>
