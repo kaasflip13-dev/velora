@@ -4,343 +4,78 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StreetDrive</title>
-<style>
-*{box-sizing:border-box}
-body{margin:0;background:#101820;color:white;font-family:Arial;overflow:hidden}
-canvas{display:block;width:100vw;height:100vh;background:#43834c}
-#menu{position:fixed;inset:0;background:linear-gradient(135deg,#101820,#253b49);display:flex;align-items:center;justify-content:center;z-index:5}
-.panel{text-align:center;background:#1b2935;padding:40px;border:1px solid #405464;border-radius:20px;width:min(420px,90%)}
-h1{font-size:42px;margin:0 0 8px;color:#70e6a1}
-button{background:#70e6a1;color:#102019;border:0;padding:14px 25px;border-radius:9px;font-size:17px;font-weight:bold;cursor:pointer;margin:7px}
-button:hover{background:#a1ffc2}
-#hud{position:fixed;top:15px;left:15px;background:#14212ddd;padding:15px;border-radius:12px;line-height:1.8;display:none}
-#pause{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:4}
-#garage{position:fixed;inset:0;background:#101820ee;display:none;align-items:center;justify-content:center;z-index:6}
-.small{color:#aab9c4;font-size:13px}
-</style>
+<title>STREETDRIVE — Open City</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <canvas id="game"></canvas>
 
-<div id="menu">
- <div class="panel">
-  <h1>STREETDRIVE</h1>
-  <p>Jouw stad. Jouw auto. Jouw avontuur.</p>
-  <p class="small">Rijd door de stad, ontwijk verkeer en verdien geld!</p>
-  <button onclick="startGame()">START RIJDEN</button>
-  <button onclick="openGarage()">GARAGE</button>
-  <p class="small">WASD / pijltjes om te rijden · ESC = pauze</p>
- </div>
+<div id="mainMenu" class="overlay">
+  <div class="menu-card">
+    <div class="eyebrow">OPEN WORLD DRIVING</div>
+    <h1>STREET<span>DRIVE</span></h1>
+    <p>Explore the city. Build your garage.</p>
+    <button id="playBtn" class="primary">START GAME <span>→</span></button>
+    <button id="garageBtn">MY GARAGE</button>
+    <div class="menu-footer">WASD / ARROW KEYS · ESC TO PAUSE</div>
+  </div>
 </div>
 
-<div id="hud">
- <b>STREETDRIVE</b><br>
- 💰 Geld: €<span id="money">0</span><br>
- 🚗 Auto: <span id="carname">Starter</span><br>
- ⭐ Afstand: <span id="distance">0</span> m<br>
- <span id="mission">Opdracht: rijd 500 meter!</span>
+<div id="pauseMenu" class="overlay hidden">
+  <div class="menu-card">
+    <div class="eyebrow">GAME PAUSED</div>
+    <h1>PAUSED</h1>
+    <button id="resumeBtn" class="primary">CONTINUE</button>
+    <button id="pauseGarageBtn">MY GARAGE</button>
+    <button id="quitBtn">MAIN MENU</button>
+  </div>
 </div>
 
-<div id="pause">
- <div class="panel">
-  <h1>GEPAUZEERD</h1>
-  <button onclick="resumeGame()">VERDER</button>
-  <button onclick="backMenu()">HOOFDMENU</button>
- </div>
+<div id="garageMenu" class="overlay hidden">
+  <div class="garage-card">
+    <div class="eyebrow">YOUR COLLECTION</div>
+    <h1>MY GARAGE</h1>
+    <div id="garageCars" class="car-list"></div>
+    <div class="garage-bottom">
+      <span>YOUR MONEY: €<b id="garageMoney">0</b></span>
+      <button id="closeGarage">BACK</button>
+    </div>
+  </div>
 </div>
 
-<div id="garage">
- <div class="panel">
-  <h1>GARAGE</h1>
-  <p id="garageInfo">Kies je auto</p>
-  <button onclick="buyCar()">KOOP SPORTAUTO (€500)</button>
-  <button onclick="closeGarage()">TERUG</button>
- </div>
+<div id="hud" class="hidden">
+  <div class="topbar">
+    <div class="brand">STREET<span>DRIVE</span></div>
+    <div class="cash">€ <span id="money">0</span></div>
+  </div>
+
+  <div class="mission">
+    <div class="mission-label">CURRENT MISSION</div>
+    <b id="missionTitle">City Explorer</b>
+    <div class="progress-bg"><div id="missionProgress"></div></div>
+    <small id="missionText">Drive 500 meters</small>
+  </div>
+
+  <div class="bottom-hud">
+    <div class="speed-panel">
+      <div class="speed-number"><span id="speed">0</span><small>KM/H</small></div>
+      <div class="gear" id="gear">N</div>
+    </div>
+    <div class="car-info">
+      <b id="carName">CITY STARTER</b>
+      <small>WASD TO DRIVE</small>
+    </div>
+  </div>
+
+  <div class="minimap">
+    <canvas id="map" width="150" height="150"></canvas>
+    <small>YOUR LOCATION</small>
+  </div>
 </div>
 
-<script>
-const canvas=document.getElementById("game");
-const ctx=canvas.getContext("2d");
+<div id="toast"></div>
 
-let W,H;
-function resize(){
- W=canvas.width=innerWidth;
- H=canvas.height=innerHeight;
-}
-resize();
-addEventListener("resize",resize);
-
-let keys={};
-addEventListener("keydown",e=>{
- keys[e.key.toLowerCase()]=true;
- if(e.key==="Escape"&&running)pauseGame();
-});
-addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
-
-let player={x:0,y:0,angle:0,speed:0};
-let cars=[];
-let trees=[];
-let buildings=[];
-let money=0;
-let distance=0;
-let running=false;
-let paused=false;
-let sportCar=false;
-let roadOffset=0;
-let lastTime=0;
-
-function makeWorld(){
- cars=[];
- trees=[];
- buildings=[];
-
- for(let i=0;i<16;i++){
-  cars.push({
-   x:(Math.random()-.5)*500,
-   y:-i*450-500,
-   speed:2+Math.random()*2,
-   color:["#e74c3c","#3498db","#f1c40f","#eeeeee","#9b59b6"][i%5]
-  });
- }
-
- for(let i=0;i<100;i++){
-  trees.push({
-   x:(Math.random()<.5?-1:1)*(300+Math.random()*500),
-   y:-Math.random()*8000
-  });
- }
-
- for(let i=0;i<40;i++){
-  buildings.push({
-   x:(Math.random()<.5?-1:1)*(330+Math.random()*350),
-   y:-i*250-200,
-   w:100+Math.random()*100,
-   h:100+Math.random()*130,
-   color:["#7d8992","#b6a18a","#647c89","#a18d78"][i%4]
-  });
- }
-}
-
-function startGame(){
- document.getElementById("menu").style.display="none";
- document.getElementById("hud").style.display="block";
- document.getElementById("pause").style.display="none";
- running=true;
- paused=false;
- player={x:0,y:0,angle:0,speed:0};
- distance=0;
- makeWorld();
- lastTime=performance.now();
- requestAnimationFrame(loop);
-}
-
-function pauseGame(){
- paused=true;
- running=false;
- document.getElementById("pause").style.display="flex";
-}
-
-function resumeGame(){
- paused=false;
- running=true;
- document.getElementById("pause").style.display="none";
- lastTime=performance.now();
- requestAnimationFrame(loop);
-}
-
-function backMenu(){
- running=false;
- paused=false;
- document.getElementById("pause").style.display="none";
- document.getElementById("hud").style.display="none";
- document.getElementById("menu").style.display="flex";
-}
-
-function openGarage(){
- document.getElementById("garage").style.display="flex";
- document.getElementById("garageInfo").innerText=
- sportCar?"Sportauto gekocht!":"Je hebt €"+money+" en rijdt met de starter.";
-}
-function closeGarage(){
- document.getElementById("garage").style.display="none";
-}
-function buyCar(){
- if(sportCar){
-  document.getElementById("garageInfo").innerText="Je hebt deze auto al!";
- }else if(money>=500){
-  money-=500;
-  sportCar=true;
-  document.getElementById("garageInfo").innerText="Sportauto gekocht!";
-  updateHUD();
- }else{
-  document.getElementById("garageInfo").innerText="Je hebt nog €"+(500-money)+" nodig.";
- }
-}
-
-function updateHUD(){
- document.getElementById("money").innerText=money;
- document.getElementById("distance").innerText=Math.floor(distance);
- document.getElementById("carname").innerText=sportCar?"Sportauto":"Starter";
- document.getElementById("mission").innerText=
- distance>=500?"Opdracht voltooid! +€100": "Opdracht: rijd "+Math.max(0,500-Math.floor(distance))+" meter!";
-}
-
-function roundedRect(x,y,w,h,r,color){
- ctx.fillStyle=color;
- ctx.beginPath();
- ctx.roundRect(x,y,w,h,r);
- ctx.fill();
-}
-
-function drawCar(x,y,angle,color,scale=1){
- ctx.save();
- ctx.translate(x,y);
- ctx.rotate(angle);
- ctx.scale(scale,scale);
-
- // Wielen
- ctx.fillStyle="#10151a";
- ctx.fillRect(-20,-29,9,17);
- ctx.fillRect(11,-29,9,17);
- ctx.fillRect(-20,12,9,17);
- ctx.fillRect(11,12,9,17);
-
- // Auto
- roundedRect(-16,-32,32,64,8,color);
- roundedRect(-12,-19,24,22,5,"#b6dce9");
-
- ctx.fillStyle="#d9f5ff";
- ctx.fillRect(-11,-16,22,5);
-
- ctx.fillStyle="#ffe99b";
- ctx.fillRect(-12,-29,7,4);
- ctx.fillRect(5,-29,7,4);
-
- ctx.fillStyle="#e74c3c";
- ctx.fillRect(-12,26,7,4);
- ctx.fillRect(5,26,7,4);
-
- ctx.restore();
-}
-
-function drawWorld(){
- ctx.fillStyle="#47834e";
- ctx.fillRect(0,0,W,H);
-
- // Gebouwen
- buildings.forEach(b=>{
-  let y=((b.y+distance*2)%9000);
-  if(y>H+200)y-=9000;
-  let x=W/2+b.x;
-  ctx.fillStyle="#31433a";
-  ctx.fillRect(x+7,y+8,b.w,b.h);
-  ctx.fillStyle=b.color;
-  ctx.fillRect(x,y,b.w,b.h);
-  ctx.fillStyle="#354653";
-  for(let a=12;a<b.w-10;a+=28)
-   for(let c=12;c<b.h-10;c+=30)
-    ctx.fillRect(x+a,y+c,13,15);
- });
-
- // Bomen
- trees.forEach(t=>{
-  let y=((t.y+distance*2)%9000);
-  if(y>H+50)y-=9000;
-  let x=W/2+t.x;
-  ctx.fillStyle="#573b27";
-  ctx.fillRect(x-4,y,8,20);
-  ctx.fillStyle="#205c35";
-  ctx.beginPath();ctx.arc(x,y,20,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle="#39834c";
-  ctx.beginPath();ctx.arc(x-7,y-5,11,0,Math.PI*2);ctx.fill();
- });
-
- // Weg
- ctx.fillStyle="#343a40";
- ctx.fillRect(W/2-190,0,380,H);
-
- // Weg randen
- ctx.fillStyle="#d5d5c7";
- ctx.fillRect(W/2-195,0,5,H);
- ctx.fillRect(W/2+190,0,5,H);
-
- // Rijstroken
- ctx.strokeStyle="#eee5a8";
- ctx.lineWidth=4;
- ctx.setLineDash([35,35]);
- ctx.lineDashOffset=roadOffset;
- ctx.beginPath();
- ctx.moveTo(W/2,0);
- ctx.lineTo(W/2,H);
- ctx.stroke();
- ctx.setLineDash([]);
-
- // Verkeer
- cars.forEach(c=>{
-  let y=((c.y+distance*2.5)% (H+400))-200;
-  drawCar(W/2+c.x,y,Math.PI,c.color,.85);
- });
-
- // Speler
- drawCar(W/2+player.x,H*.72,player.angle,
- sportCar?"#e84c3d":"#32a8dc",1.15);
-}
-
-function loop(time){
- if(!running)return;
- let dt=Math.min((time-lastTime)/16.67,2);
- lastTime=time;
-
- let acceleration=keys["w"]||keys["arrowup"];
- let braking=keys["s"]||keys["arrowdown"];
- let left=keys["a"]||keys["arrowleft"];
- let right=keys["d"]||keys["arrowright"];
-
- if(acceleration)player.speed+=.12*dt;
- else if(braking)player.speed-=.18*dt;
- else player.speed*=Math.pow(.985,dt);
-
- player.speed=Math.max(-2,Math.min(sportCar?10:7,player.speed));
-
- if(left)player.angle-=.045*dt;
- if(right)player.angle+=.045*dt;
-
- player.x+=Math.sin(player.angle)*player.speed*3*dt;
- player.x=Math.max(-155,Math.min(155,player.x));
-
- let forward=Math.max(0,player.speed);
- distance+=forward*.15*dt;
- roadOffset+=forward*4*dt;
-
- cars.forEach(c=>{
-  c.y+=c.speed*dt;
-  if(c.y>H+300)c.y=-1000-Math.random()*1000;
- });
-
- // Geld verdienen
- if(distance>=500&&distance<501){
-  money+=100;
- }
- updateHUD();
-
- drawWorld();
-
- // Bots en botsbotsingen
- cars.forEach(c=>{
-  let y=((c.y+distance*2.5)%(H+400))-200;
-  if(Math.abs(c.x-player.x)<34&&Math.abs(y-H*.72)<48){
-   player.speed=0;
-   player.x+=player.x<0?-25:25;
-   player.x=Math.max(-150,Math.min(150,player.x));
-  }
- });
-
- requestAnimationFrame(loop);
-}
-
-updateHUD();
-</script>
+<script src="app.js"></script>
 </body>
 </html>
