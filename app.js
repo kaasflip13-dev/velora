@@ -1,19 +1,25 @@
 // ==========================================
 // VÉLORA — THE WORLD THAT LISTENS
-// COMPLETE GAME + LOCAL SAVE + FIREBASE
+// GOOGLE LOGIN + PLAYER LIST + CLOUD SAVES
 // ==========================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
+
 import {
     getAuth,
-    signInAnonymously
+    GoogleAuthProvider,
+    signInWithPopup,
+    signOut,
+    onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
 
 import {
     getDatabase,
     ref,
     get,
-    set
+    set,
+    onValue,
+    serverTimestamp
 } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-database.js";
 
 // ==========================================
@@ -32,14 +38,17 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
+const provider = new GoogleAuthProvider();
 
 const database = getDatabase(
     firebaseApp,
     "https://velora-5246f-default-rtdb.europe-west1.firebasedatabase.app"
 );
 
+let currentUser = null;
 let playerUID = null;
 let saving = false;
+let playersListenerStarted = false;
 
 // ==========================================
 // HTML ELEMENTEN
@@ -51,6 +60,17 @@ const ctx = canvas.getContext("2d");
 const menu = document.getElementById("menu");
 const startButton = document.getElementById("startButton");
 const gameUI = document.getElementById("gameUI");
+
+const googleButton = document.getElementById("googleButton");
+const logoutButton = document.getElementById("logoutButton");
+
+const loginArea = document.getElementById("loginArea");
+const loggedInArea = document.getElementById("loggedInArea");
+
+const loginStatus = document.getElementById("loginStatus");
+const playerName = document.getElementById("playerName");
+const playerEmail = document.getElementById("playerEmail");
+const playersList = document.getElementById("playersList");
 
 const crystalCount = document.getElementById("crystalCount");
 const cooldownBar = document.getElementById("cooldownBar");
@@ -69,8 +89,6 @@ const restartButton = document.getElementById("restartButton");
 const WORLD_SIZE = 2200;
 const WAVE_COOLDOWN = 5;
 const PLAYER_LIGHT_RADIUS = 115;
-
-const SAVE_KEY = "velora_backup";
 
 let running = false;
 let lastTime = 0;
@@ -96,6 +114,12 @@ const player = {
     speed: 190,
     health: 100
 };
+
+function saveKey() {
+    return playerUID
+        ? "velora_backup_" + playerUID
+        : "velora_backup";
+}
 
 // ==========================================
 // DONKERTE CANVAS
@@ -133,6 +157,181 @@ function distance(a, b) {
 }
 
 // ==========================================
+// GOOGLE LOGIN
+// ==========================================
+
+async function loginWithGoogle() {
+    googleButton.disabled = true;
+    loginStatus.textContent = "Connecting to Google...";
+
+    try {
+        const result = await signInWithPopup(auth, provider);
+
+        currentUser = result.user;
+        playerUID = result.user.uid;
+
+        loginStatus.textContent = "Google account connected!";
+        console.log("Google login:", playerUID);
+
+    } catch (error) {
+        console.error("Google login error:", error);
+
+        if (error.code === "auth/popup-closed-by-user") {
+            loginStatus.textContent = "Login cancelled.";
+        } else if (error.code === "auth/unauthorized-domain") {
+            loginStatus.textContent = "Add this website domain in Firebase.";
+        } else {
+            loginStatus.textContent = "Login failed: " + error.message;
+        }
+
+    } finally {
+        googleButton.disabled = false;
+    }
+}
+
+// ==========================================
+// UITLOGGEN
+// ==========================================
+
+async function logout() {
+    if (running) {
+        saveGame();
+        running = false;
+    }
+
+    try {
+        await signOut(auth);
+
+        currentUser = null;
+        playerUID = null;
+
+        menu.style.display = "flex";
+        gameUI.style.display = "none";
+        winScreen.style.display = "none";
+
+        console.log("Signed out.");
+
+    } catch (error) {
+        console.error("Logout error:", error);
+    }
+}
+
+// ==========================================
+// ACCOUNT STATUS
+// ==========================================
+
+onAuthStateChanged(auth, async user => {
+    currentUser = user;
+    playerUID = user ? user.uid : null;
+
+    if (user) {
+        loginArea.style.display = "none";
+        loggedInArea.style.display = "block";
+
+        playerName.textContent =
+            user.displayName || "VÉLORA Player";
+
+        playerEmail.textContent = user.email || "";
+
+        startButton.disabled = false;
+        startButton.textContent = "ENTER THE WORLD";
+
+        await savePublicProfile(user);
+        listenToPlayers();
+
+        console.log("Account ready:", user.uid);
+
+    } else {
+        loginArea.style.display = "block";
+        loggedInArea.style.display = "none";
+
+        startButton.disabled = true;
+        startButton.textContent = "SIGN IN FIRST";
+
+        playersList.textContent = "Sign in to see the players.";
+    }
+});
+
+// ==========================================
+// OPENBAAR SPELERSPROFIEL
+// ==========================================
+
+async function savePublicProfile(user) {
+    if (!user) return;
+
+    const profile = {
+        name: user.displayName || "VÉLORA Player",
+        photoURL: user.photoURL || "",
+        lastSeen: Date.now()
+    };
+
+    try {
+        await set(
+            ref(database, "publicPlayers/" + user.uid),
+            profile
+        );
+
+        console.log("Player profile saved.");
+
+    } catch (error) {
+        console.error("Profile save error:", error);
+    }
+}
+
+// ==========================================
+// SPELERSLIJST
+// ==========================================
+
+function listenToPlayers() {
+    if (playersListenerStarted) return;
+
+    playersListenerStarted = true;
+
+    onValue(
+        ref(database, "publicPlayers"),
+        snapshot => {
+            playersList.innerHTML = "";
+
+            if (!snapshot.exists()) {
+                playersList.textContent = "No players yet.";
+                return;
+            }
+
+            const players = Object.entries(snapshot.val());
+
+            players.sort((a, b) => {
+                return (b[1].lastSeen || 0) -
+                       (a[1].lastSeen || 0);
+            });
+
+            players.forEach(([uid, data]) => {
+                const row = document.createElement("div");
+                row.className = "player-row";
+
+                const dot = document.createElement("span");
+                dot.className = "player-dot";
+
+                const name = document.createElement("span");
+                name.textContent =
+                    data.name || "VÉLORA Player";
+
+                if (uid === playerUID) {
+                    name.textContent += " (You)";
+                }
+
+                row.appendChild(dot);
+                row.appendChild(name);
+                playersList.appendChild(row);
+            });
+        },
+        error => {
+            console.error("Players list error:", error);
+            playersList.textContent = "Could not load players.";
+        }
+    );
+}
+
+// ==========================================
 // SAVE DATA
 // ==========================================
 
@@ -142,12 +341,10 @@ function getSaveData() {
         y: player.y,
         health: player.health,
         crystals: crystals,
-
         enemies: enemies,
         crystalObjects: crystalObjects,
         trees: trees,
         rocks: rocks,
-
         portal: portal,
         savedAt: Date.now()
     };
@@ -190,70 +387,40 @@ function applySaveData(data) {
 }
 
 // ==========================================
-// LOKAAL OPSLAAN
+// LOKALE SAVE
 // ==========================================
 
 function saveLocal() {
     try {
-        const data = getSaveData();
-
         localStorage.setItem(
-            SAVE_KEY,
-            JSON.stringify(data)
+            saveKey(),
+            JSON.stringify(getSaveData())
         );
-
-        console.log("VÉLORA lokaal opgeslagen!");
 
         return true;
 
     } catch (error) {
-        console.error("Lokale opslag mislukt:", error);
+        console.error("Local save error:", error);
         return false;
     }
 }
-
-// ==========================================
-// LOKAAL LADEN
-// ==========================================
 
 function loadLocal() {
     try {
-        const saved = localStorage.getItem(SAVE_KEY);
+        const saved = localStorage.getItem(saveKey());
 
         if (!saved) return false;
 
-        const data = JSON.parse(saved);
-
-        return applySaveData(data);
+        return applySaveData(JSON.parse(saved));
 
     } catch (error) {
-        console.error("Lokale save laden mislukt:", error);
+        console.error("Local load error:", error);
         return false;
     }
 }
 
 // ==========================================
-// FIREBASE INLOGGEN
-// ==========================================
-
-async function loginFirebase() {
-    try {
-        const result = await signInAnonymously(auth);
-
-        playerUID = result.user.uid;
-
-        console.log("Firebase verbonden:", playerUID);
-
-        return true;
-
-    } catch (error) {
-        console.error("Firebase login mislukt:", error);
-        return false;
-    }
-}
-
-// ==========================================
-// FIREBASE OPSLAAN
+// FIREBASE SAVE
 // ==========================================
 
 async function saveFirebase() {
@@ -262,40 +429,20 @@ async function saveFirebase() {
     saving = true;
 
     try {
-        const data = getSaveData();
-
         await set(
             ref(database, "players/" + playerUID + "/save"),
-            data
+            getSaveData()
         );
 
-        console.log("Firebase opgeslagen!");
+        console.log("Cloud save completed!");
 
     } catch (error) {
-        console.error("Firebase opslaan mislukt:", error);
+        console.error("Cloud save error:", error);
 
     } finally {
         saving = false;
     }
 }
-
-// ==========================================
-// ALLES OPSLAAN
-// ==========================================
-
-async function saveGame() {
-    // Eerst altijd lokaal opslaan
-    saveLocal();
-
-    // Daarna ook online opslaan
-    if (playerUID) {
-        await saveFirebase();
-    }
-}
-
-// ==========================================
-// FIREBASE LADEN
-// ==========================================
 
 async function loadFirebase() {
     if (!playerUID) return false;
@@ -305,60 +452,23 @@ async function loadFirebase() {
             ref(database, "players/" + playerUID + "/save")
         );
 
-        if (!snapshot.exists()) {
-            console.log("Geen Firebase save gevonden.");
-            return false;
-        }
+        if (!snapshot.exists()) return false;
 
-        const data = snapshot.val();
-
-        return applySaveData(data);
+        return applySaveData(snapshot.val());
 
     } catch (error) {
-        console.error("Firebase laden mislukt:", error);
+        console.error("Cloud load error:", error);
         return false;
     }
 }
 
-// ==========================================
-// FIREBASE VERBINDING OP DE ACHTERGROND
-// ==========================================
+async function saveGame() {
+    saveLocal();
 
-async function connectFirebase() {
-    const connected = await loginFirebase();
-
-    if (!connected) {
-        console.log("VÉLORA draait zonder Firebase.");
-        return;
-    }
-
-    // Als er nog geen lokale save is, probeer Firebase.
-    const localSaveExists = localStorage.getItem(SAVE_KEY);
-
-    if (!localSaveExists) {
-        const loaded = await loadFirebase();
-
-        if (loaded && running) {
-            updateCamera();
-            updateCrystalCount();
-            render();
-            showMessage("Cloud save geladen!");
-        }
-    } else {
-        // Lokale voortgang naar Firebase kopiëren.
+    if (playerUID) {
         await saveFirebase();
     }
 }
-
-// ==========================================
-// AUTOMATISCH OPSLAAN
-// ==========================================
-
-setInterval(() => {
-    if (running) {
-        saveGame();
-    }
-}, 5000);
 
 // ==========================================
 // BESTURING
@@ -380,9 +490,7 @@ window.addEventListener("keyup", e => {
 window.addEventListener("blur", () => {
     keys = {};
 
-    if (running) {
-        saveGame();
-    }
+    if (running) saveGame();
 });
 
 // ==========================================
@@ -396,7 +504,6 @@ function createWorld() {
     crystalObjects = [];
     waves = [];
 
-    // Bomen
     for (let i = 0; i < 130; i++) {
         trees.push({
             x: random(80, WORLD_SIZE - 80),
@@ -405,7 +512,6 @@ function createWorld() {
         });
     }
 
-    // Rotsen
     for (let i = 0; i < 100; i++) {
         rocks.push({
             x: random(80, WORLD_SIZE - 80),
@@ -414,10 +520,8 @@ function createWorld() {
         });
     }
 
-    // Kristallen
     for (let i = 0; i < 5; i++) {
-        let x;
-        let y;
+        let x, y;
         let attempts = 0;
 
         do {
@@ -437,7 +541,6 @@ function createWorld() {
         });
     }
 
-    // Vijanden
     for (let i = 0; i < 7; i++) {
         enemies.push({
             x: random(100, WORLD_SIZE - 100),
@@ -448,7 +551,6 @@ function createWorld() {
         });
     }
 
-    // Portaal
     portal = {
         x: WORLD_SIZE - 180,
         y: WORLD_SIZE - 180
@@ -469,7 +571,6 @@ function newWorld() {
     waves = [];
 
     createWorld();
-
     updateCrystalCount();
 }
 
@@ -480,14 +581,24 @@ function newWorld() {
 async function startGame() {
     if (running) return;
 
+    if (!currentUser) {
+        loginStatus.textContent = "Sign in with Google first.";
+        return;
+    }
+
     startButton.disabled = true;
-    startButton.textContent = "ENTERING...";
+    startButton.textContent = "LOADING WORLD...";
 
     try {
-        // Eerst lokale save proberen
-        const loaded = loadLocal();
+        // Eerst de cloud-save proberen.
+        let loaded = await loadFirebase();
 
-        // Geen save? Nieuwe wereld maken.
+        // Anders de lokale save van dit account.
+        if (!loaded) {
+            loaded = loadLocal();
+        }
+
+        // Nog geen save? Nieuwe wereld.
         if (!loaded || player.health <= 0) {
             newWorld();
         }
@@ -507,27 +618,19 @@ async function startGame() {
         updateCamera();
         render();
 
-        startButton.disabled = false;
-        startButton.textContent = "ENTER THE WORLD";
-
         showMessage(
-            loaded && player.health > 0
-                ? "Welcome back!"
-                : "Welcome to VÉLORA!"
+            loaded ? "Welcome back!" : "Welcome to VÉLORA!"
         );
 
         requestAnimationFrame(gameLoop);
 
-        // Firebase verbinden zonder het starten te vertragen.
-        connectFirebase();
-
     } catch (error) {
-        console.error("Startfout:", error);
+        console.error("Start error:", error);
+        showMessage("Could not load your world.");
 
+    } finally {
         startButton.disabled = false;
         startButton.textContent = "ENTER THE WORLD";
-
-        showMessage("Er ging iets mis.");
     }
 }
 
@@ -566,16 +669,12 @@ function updateWaves(dt) {
 
     waveCooldown = Math.max(0, waveCooldown - dt);
 
-    if (cooldownBar) {
-        cooldownBar.style.width =
-            `${100 - waveCooldown / WAVE_COOLDOWN * 100}%`;
-    }
+    cooldownBar.style.width =
+        `${100 - waveCooldown / WAVE_COOLDOWN * 100}%`;
 
-    if (cooldownText) {
-        cooldownText.textContent = waveCooldown > 0
-            ? `${waveCooldown.toFixed(1)}s`
-            : "READY";
-    }
+    cooldownText.textContent = waveCooldown > 0
+        ? `${waveCooldown.toFixed(1)}s`
+        : "READY";
 }
 
 // ==========================================
@@ -603,15 +702,8 @@ function updatePlayer(dt) {
         player.y += dy * player.speed * sprint * dt;
     }
 
-    player.x = Math.max(
-        20,
-        Math.min(WORLD_SIZE - 20, player.x)
-    );
-
-    player.y = Math.max(
-        20,
-        Math.min(WORLD_SIZE - 20, player.y)
-    );
+    player.x = Math.max(20, Math.min(WORLD_SIZE - 20, player.x));
+    player.y = Math.max(20, Math.min(WORLD_SIZE - 20, player.y));
 }
 
 // ==========================================
@@ -622,9 +714,7 @@ function updateEnemies(dt) {
     enemies.forEach(enemy => {
         const d = distance(player, enemy);
 
-        if (d < 170) {
-            enemy.alert = true;
-        }
+        if (d < 170) enemy.alert = true;
 
         if (enemy.alert) {
             const angle = Math.atan2(
@@ -671,9 +761,7 @@ function updateCrystals() {
 }
 
 function updateCrystalCount() {
-    if (crystalCount) {
-        crystalCount.textContent = `${crystals}/5`;
-    }
+    crystalCount.textContent = `${crystals}/5`;
 }
 
 // ==========================================
@@ -681,11 +769,8 @@ function updateCrystalCount() {
 // ==========================================
 
 function showMessage(text) {
-    if (!message) return;
-
     message.textContent = text;
     message.style.display = "block";
-
     messageTimer = 2;
 }
 
@@ -693,7 +778,7 @@ function updateMessage(dt) {
     if (messageTimer > 0) {
         messageTimer -= dt;
 
-        if (messageTimer <= 0 && message) {
+        if (messageTimer <= 0) {
             message.style.display = "none";
         }
     }
@@ -729,22 +814,14 @@ function drawWorld() {
     ctx.strokeStyle = "rgba(180,210,170,0.08)";
     ctx.lineWidth = 1;
 
-    for (
-        let x = -camera.x % 80;
-        x < canvas.width;
-        x += 80
-    ) {
+    for (let x = -camera.x % 80; x < canvas.width; x += 80) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, canvas.height);
         ctx.stroke();
     }
 
-    for (
-        let y = -camera.y % 80;
-        y < canvas.height;
-        y += 80
-    ) {
+    for (let y = -camera.y % 80; y < canvas.height; y += 80) {
         ctx.beginPath();
         ctx.moveTo(0, y);
         ctx.lineTo(canvas.width, y);
@@ -772,19 +849,13 @@ function drawTrees() {
         const y = tree.y - camera.y;
 
         if (
-            x < -50 ||
-            y < -50 ||
+            x < -50 || y < -50 ||
             x > canvas.width + 50 ||
             y > canvas.height + 50
         ) return;
 
         ctx.fillStyle = "#493a2d";
-        ctx.fillRect(
-            x - 5,
-            y,
-            10,
-            tree.size
-        );
+        ctx.fillRect(x - 5, y, 10, tree.size);
 
         ctx.fillStyle = "#244f36";
         ctx.beginPath();
@@ -793,13 +864,7 @@ function drawTrees() {
 
         ctx.fillStyle = "#376a43";
         ctx.beginPath();
-        ctx.arc(
-            x - 5,
-            y - 5,
-            tree.size * 0.65,
-            0,
-            Math.PI * 2
-        );
+        ctx.arc(x - 5, y - 5, tree.size * 0.65, 0, Math.PI * 2);
         ctx.fill();
     });
 }
@@ -814,30 +879,25 @@ function drawRocks() {
         const y = rock.y - camera.y;
 
         if (
-            x < -30 ||
-            y < -30 ||
+            x < -30 || y < -30 ||
             x > canvas.width + 30 ||
             y > canvas.height + 30
         ) return;
 
         ctx.fillStyle = "#697477";
-
         ctx.beginPath();
         ctx.ellipse(
-            x,
-            y,
+            x, y,
             rock.size,
             rock.size * 0.7,
-            0,
-            0,
-            Math.PI * 2
+            0, 0, Math.PI * 2
         );
         ctx.fill();
     });
 }
 
 // ==========================================
-// KRISTALLEN TEKENEN
+// KRISTALLEN
 // ==========================================
 
 function drawCrystals() {
@@ -850,7 +910,6 @@ function drawCrystals() {
         crystal.pulse += 0.05;
 
         ctx.save();
-
         ctx.translate(x, y);
         ctx.rotate(Math.sin(crystal.pulse) * 0.15);
 
@@ -872,7 +931,7 @@ function drawCrystals() {
 }
 
 // ==========================================
-// VIJANDEN TEKENEN
+// VIJANDEN
 // ==========================================
 
 function drawEnemies() {
@@ -881,41 +940,26 @@ function drawEnemies() {
         const y = enemy.y - camera.y;
 
         if (
-            x < -50 ||
-            y < -50 ||
+            x < -50 || y < -50 ||
             x > canvas.width + 50 ||
             y > canvas.height + 50
         ) return;
 
         ctx.save();
-
         ctx.translate(x, y);
         ctx.rotate(enemy.angle);
 
         ctx.fillStyle = "#a4c76d";
-
         ctx.beginPath();
-        ctx.ellipse(
-            0, 0,
-            17, 12,
-            0, 0,
-            Math.PI * 2
-        );
+        ctx.ellipse(0, 0, 17, 12, 0, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = "#b8df82";
-
         ctx.beginPath();
-        ctx.ellipse(
-            10, -3,
-            10, 9,
-            0, 0,
-            Math.PI * 2
-        );
+        ctx.ellipse(10, -3, 10, 9, 0, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = "#ff526b";
-
         ctx.beginPath();
         ctx.arc(14, -6, 2.5, 0, Math.PI * 2);
         ctx.fill();
@@ -933,7 +977,6 @@ function drawPortal() {
     const y = portal.y - camera.y;
 
     ctx.save();
-
     ctx.translate(x, y);
 
     ctx.shadowBlur = 25;
@@ -942,54 +985,31 @@ function drawPortal() {
     ctx.lineWidth = 6;
 
     ctx.beginPath();
-    ctx.ellipse(
-        0, 0,
-        25, 40,
-        0, 0,
-        Math.PI * 2
-    );
+    ctx.ellipse(0, 0, 25, 40, 0, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.fillStyle = "rgba(140,80,255,0.2)";
-
     ctx.beginPath();
-    ctx.ellipse(
-        0, 0,
-        19, 34,
-        0, 0,
-        Math.PI * 2
-    );
+    ctx.ellipse(0, 0, 19, 34, 0, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
 }
 
 // ==========================================
-// DONKERTE + LICHTCIRKEL
+// DONKERTE + LICHT
 // ==========================================
 
 function drawNightEffect() {
     const dark = darknessCtx;
 
-    dark.clearRect(
-        0, 0,
-        darknessCanvas.width,
-        darknessCanvas.height
-    );
-
+    dark.clearRect(0, 0, darknessCanvas.width, darknessCanvas.height);
     dark.globalCompositeOperation = "source-over";
-
     dark.fillStyle = "#02050b";
-
-    dark.fillRect(
-        0, 0,
-        darknessCanvas.width,
-        darknessCanvas.height
-    );
+    dark.fillRect(0, 0, darknessCanvas.width, darknessCanvas.height);
 
     dark.globalCompositeOperation = "destination-out";
 
-    // Shockwaves onthullen de wereld
     waves.forEach(wave => {
         const x = wave.x - camera.x;
         const y = wave.y - camera.y;
@@ -1001,29 +1021,16 @@ function drawNightEffect() {
 
         const reveal = Math.min(1, wave.alpha * 1.8);
 
-        gradient.addColorStop(
-            0,
-            `rgba(0,0,0,${reveal})`
-        );
-
-        gradient.addColorStop(
-            0.75,
-            `rgba(0,0,0,${reveal * 0.9})`
-        );
-
-        gradient.addColorStop(
-            1,
-            "rgba(0,0,0,0)"
-        );
+        gradient.addColorStop(0, `rgba(0,0,0,${reveal})`);
+        gradient.addColorStop(0.75, `rgba(0,0,0,${reveal * 0.9})`);
+        gradient.addColorStop(1, "rgba(0,0,0,0)");
 
         dark.fillStyle = gradient;
-
         dark.beginPath();
         dark.arc(x, y, wave.radius, 0, Math.PI * 2);
         dark.fill();
     });
 
-    // Klein licht rond de speler
     const px = player.x - camera.x;
     const py = player.y - camera.y;
 
@@ -1032,33 +1039,16 @@ function drawNightEffect() {
         px, py, PLAYER_LIGHT_RADIUS
     );
 
-    playerLight.addColorStop(
-        0,
-        "rgba(0,0,0,0.65)"
-    );
-
-    playerLight.addColorStop(
-        0.45,
-        "rgba(0,0,0,0.38)"
-    );
-
-    playerLight.addColorStop(
-        1,
-        "rgba(0,0,0,0)"
-    );
+    playerLight.addColorStop(0, "rgba(0,0,0,0.65)");
+    playerLight.addColorStop(0.45, "rgba(0,0,0,0.38)");
+    playerLight.addColorStop(1, "rgba(0,0,0,0)");
 
     dark.fillStyle = playerLight;
-
     dark.beginPath();
-    dark.arc(
-        px, py,
-        PLAYER_LIGHT_RADIUS,
-        0, Math.PI * 2
-    );
+    dark.arc(px, py, PLAYER_LIGHT_RADIUS, 0, Math.PI * 2);
     dark.fill();
 
     dark.globalCompositeOperation = "source-over";
-
     ctx.drawImage(darknessCanvas, 0, 0);
 }
 
@@ -1072,17 +1062,8 @@ function drawWaves() {
         const y = wave.y - camera.y;
 
         ctx.beginPath();
-
-        ctx.arc(
-            x, y,
-            wave.radius,
-            0,
-            Math.PI * 2
-        );
-
-        ctx.strokeStyle =
-            `rgba(100,230,255,${wave.alpha})`;
-
+        ctx.arc(x, y, wave.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(100,230,255,${wave.alpha})`;
         ctx.lineWidth = 3;
         ctx.stroke();
     });
@@ -1097,43 +1078,21 @@ function drawPlayer() {
     const y = player.y - camera.y;
 
     ctx.save();
-
     ctx.translate(x, y);
 
-    // Schaduw
     ctx.fillStyle = "rgba(0,0,0,0.3)";
-
     ctx.beginPath();
-    ctx.ellipse(
-        0, 12,
-        15, 7,
-        0, 0,
-        Math.PI * 2
-    );
+    ctx.ellipse(0, 12, 15, 7, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Lichaam
     ctx.fillStyle = "#e6e3d6";
-
     ctx.beginPath();
-    ctx.arc(
-        0, 0,
-        player.radius,
-        0,
-        Math.PI * 2
-    );
+    ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Lichtkern
     ctx.fillStyle = "#65d9df";
-
     ctx.beginPath();
-    ctx.arc(
-        0, -3,
-        9,
-        0,
-        Math.PI * 2
-    );
+    ctx.arc(0, -3, 9, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -1144,17 +1103,13 @@ function drawPlayer() {
 // ==========================================
 
 function drawHUD() {
-    if (hint) {
-        hint.textContent =
-            "WASD: MOVE | SHIFT: SPRINT | SPACE: SHOCKWAVE";
-    }
+    hint.textContent =
+        "WASD: MOVE | SHIFT: SPRINT | SPACE: SHOCKWAVE";
 
-    // Gezondheid
     ctx.fillStyle = "rgba(0,0,0,0.7)";
     ctx.fillRect(20, 20, 160, 12);
 
     ctx.fillStyle = "#71d99a";
-
     ctx.fillRect(
         20,
         20,
@@ -1171,21 +1126,20 @@ function gameOver() {
     if (!running) return;
 
     running = false;
-
     saveGame();
 
-    if (message) {
-        message.textContent = "You have been found...";
-        message.style.display = "block";
-    }
+    message.textContent = "You have been found...";
+    message.style.display = "block";
 
     setTimeout(() => {
         if (!running) {
             menu.style.display = "flex";
             gameUI.style.display = "none";
 
-            startButton.disabled = false;
-            startButton.textContent = "ENTER THE WORLD";
+            startButton.disabled = !currentUser;
+            startButton.textContent = currentUser
+                ? "ENTER THE WORLD"
+                : "SIGN IN FIRST";
         }
     }, 1800);
 }
@@ -1195,12 +1149,8 @@ function gameOver() {
 // ==========================================
 
 function checkWin() {
-    if (
-        crystals >= 5 &&
-        distance(player, portal) < 45
-    ) {
+    if (crystals >= 5 && distance(player, portal) < 45) {
         running = false;
-
         saveGame();
 
         winScreen.style.display = "flex";
@@ -1248,11 +1198,7 @@ function render() {
 function gameLoop(time) {
     if (!running) return;
 
-    const dt = Math.min(
-        (time - lastTime) / 1000,
-        0.04
-    );
-
+    const dt = Math.min((time - lastTime) / 1000, 0.04);
     lastTime = time;
 
     update(dt);
@@ -1265,12 +1211,11 @@ function gameLoop(time) {
 // KNOPPEN
 // ==========================================
 
+googleButton.addEventListener("click", loginWithGoogle);
+logoutButton.addEventListener("click", logout);
 startButton.addEventListener("click", startGame);
 
 restartButton.addEventListener("click", () => {
-    // Een nieuwe wereld beginnen
-    localStorage.removeItem(SAVE_KEY);
-
     newWorld();
 
     winScreen.style.display = "none";
@@ -1284,9 +1229,18 @@ restartButton.addEventListener("click", () => {
     render();
 
     requestAnimationFrame(gameLoop);
-
     saveGame();
 });
+
+// ==========================================
+// AUTOMATISCH OPSLAAN
+// ==========================================
+
+setInterval(() => {
+    if (running) {
+        saveGame();
+    }
+}, 5000);
 
 // ==========================================
 // BEGINSTAND
@@ -1296,7 +1250,7 @@ menu.style.display = "flex";
 gameUI.style.display = "none";
 winScreen.style.display = "none";
 
-startButton.disabled = false;
-startButton.textContent = "ENTER THE WORLD";
+startButton.disabled = true;
+startButton.textContent = "SIGN IN FIRST";
 
-console.log("VÉLORA is klaar!");
+console.log("VÉLORA is ready!");
