@@ -893,3 +893,12 @@ function gameLoop(time) {
 menu.style.display = "flex";
 gameUI.style.display = "none";
 winScreen.style.display = "none";
+// KNOPPEN
+startButton.addEventListener("click", startGame);
+
+restartButton.addEventListener("click", () => {
+    winScreen.style.display = "none";
+    startGame();
+});
+
+console.log("VÉLORA gestart!");
