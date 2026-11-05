@@ -1,7 +1,7 @@
 
 // ==========================================
 // VÉLORA — THE WORLD THAT LISTENS
-// Complete app.js
+// ALWAYS DARK + SHOCKWAVE VISION
 // ==========================================
 
 const canvas = document.getElementById("game");
@@ -18,17 +18,13 @@ const message = document.getElementById("message");
 const winScreen = document.getElementById("winScreen");
 const restartButton = document.getElementById("restartButton");
 
-const NIGHT_DURATION = 3; // Donkere tijd: 3 seconden
-const DAY_DURATION = 25;
-const WAVE_COOLDOWN = 5;
 const WORLD_SIZE = 2200;
+const WAVE_COOLDOWN = 5;
 
 let running = false;
 let lastTime = 0;
 let crystals = 0;
 let waveCooldown = 0;
-let cycleTime = 0;
-let isNight = false;
 let keys = {};
 
 let camera = { x: 0, y: 0 };
@@ -46,18 +42,29 @@ let crystalObjects = [];
 let trees = [];
 let rocks = [];
 let waves = [];
-let portal = { x: 0, y: 0 };
 
-// Canvas
+let portal = { x: 0, y: 0 };
+let messageTimer = 0;
+
+// Apart canvas voor het donker
+const darknessCanvas = document.createElement("canvas");
+const darknessCtx = darknessCanvas.getContext("2d");
+
 function resizeCanvas() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+
+    darknessCanvas.width = canvas.width;
+    darknessCanvas.height = canvas.height;
 }
 
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
-// Besturing
+// ==========================================
+// BESTURING
+// ==========================================
+
 window.addEventListener("keydown", e => {
     keys[e.key.toLowerCase()] = true;
 
@@ -71,7 +78,6 @@ window.addEventListener("keyup", e => {
     keys[e.key.toLowerCase()] = false;
 });
 
-// Willekeurige wereld
 function random(min, max) {
     return Math.random() * (max - min) + min;
 }
@@ -79,6 +85,10 @@ function random(min, max) {
 function distance(a, b) {
     return Math.hypot(a.x - b.x, a.y - b.y);
 }
+
+// ==========================================
+// WERELD MAKEN
+// ==========================================
 
 function createWorld() {
     trees = [];
@@ -103,7 +113,6 @@ function createWorld() {
         });
     }
 
-    // Vijf herinneringskristallen
     for (let i = 0; i < 5; i++) {
         let x, y;
 
@@ -120,7 +129,6 @@ function createWorld() {
         });
     }
 
-    // Wezens die op geluid afkomen
     for (let i = 0; i < 7; i++) {
         enemies.push({
             x: random(100, WORLD_SIZE - 100),
@@ -137,11 +145,13 @@ function createWorld() {
     };
 }
 
+// ==========================================
+// START
+// ==========================================
+
 function startGame() {
     crystals = 0;
     waveCooldown = 0;
-    cycleTime = 0;
-    isNight = false;
 
     player.x = WORLD_SIZE / 2;
     player.y = WORLD_SIZE / 2;
@@ -166,7 +176,10 @@ if (restartButton) {
     restartButton.addEventListener("click", startGame);
 }
 
-// Geluidsgolf
+// ==========================================
+// SHOCKWAVE
+// ==========================================
+
 function createWave() {
     if (!running || waveCooldown > 0) return;
 
@@ -174,27 +187,46 @@ function createWave() {
         x: player.x,
         y: player.y,
         radius: 5,
-        maxRadius: 420,
         alpha: 1
     });
 
     waveCooldown = WAVE_COOLDOWN;
 
-    // Vijanden horen de golf
     enemies.forEach(enemy => {
-        if (distance(player, enemy) < 500) {
+        if (distance(player, enemy) < 550) {
             enemy.alert = true;
         }
     });
 }
 
-function updateCrystalCount() {
-    if (crystalCount) {
-        crystalCount.textContent = `${crystals}/5`;
+function updateWaves(dt) {
+    waves.forEach(wave => {
+        wave.radius += 650 * dt;
+        wave.alpha -= 0.7 * dt;
+    });
+
+    waves = waves.filter(wave =>
+        wave.alpha > 0 && wave.radius < 900
+    );
+
+    waveCooldown = Math.max(0, waveCooldown - dt);
+
+    if (cooldownBar) {
+        cooldownBar.style.width =
+            `${100 - waveCooldown / WAVE_COOLDOWN * 100}%`;
+    }
+
+    if (cooldownText) {
+        cooldownText.textContent = waveCooldown > 0
+            ? `${waveCooldown.toFixed(1)}s`
+            : "READY";
     }
 }
 
-// Speler bewegen
+// ==========================================
+// SPELER
+// ==========================================
+
 function updatePlayer(dt) {
     let dx = 0;
     let dy = 0;
@@ -206,10 +238,12 @@ function updatePlayer(dt) {
 
     if (dx !== 0 || dy !== 0) {
         const length = Math.hypot(dx, dy);
+
         dx /= length;
         dy /= length;
 
         const sprint = keys["shift"] ? 1.55 : 1;
+
         player.x += dx * player.speed * sprint * dt;
         player.y += dy * player.speed * sprint * dt;
     }
@@ -218,7 +252,10 @@ function updatePlayer(dt) {
     player.y = Math.max(20, Math.min(WORLD_SIZE - 20, player.y));
 }
 
-// Vijanden
+// ==========================================
+// VIJANDEN
+// ==========================================
+
 function updateEnemies(dt) {
     enemies.forEach(enemy => {
         const d = distance(player, enemy);
@@ -228,9 +265,13 @@ function updateEnemies(dt) {
         }
 
         if (enemy.alert) {
-            const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+            const angle = Math.atan2(
+                player.y - enemy.y,
+                player.x - enemy.x
+            );
 
             enemy.angle = angle;
+
             enemy.x += Math.cos(angle) * enemy.speed * dt;
             enemy.y += Math.sin(angle) * enemy.speed * dt;
 
@@ -246,7 +287,10 @@ function updateEnemies(dt) {
     });
 }
 
-// Kristallen verzamelen
+// ==========================================
+// KRISTALLEN
+// ==========================================
+
 function updateCrystals() {
     crystalObjects.forEach(crystal => {
         if (!crystal.collected &&
@@ -254,55 +298,22 @@ function updateCrystals() {
 
             crystal.collected = true;
             crystals++;
-            updateCrystalCount();
 
+            updateCrystalCount();
             showMessage("Herinnering gevonden!");
         }
     });
 }
 
-// Geluidsgolven
-function updateWaves(dt) {
-    waves.forEach(wave => {
-        wave.radius += 600 * dt;
-        wave.alpha -= 0.65 * dt;
-    });
-
-    waves = waves.filter(wave => wave.alpha > 0);
-
-    waveCooldown = Math.max(0, waveCooldown - dt);
-
-    if (cooldownBar) {
-        cooldownBar.style.width =
-            `${100 - (waveCooldown / WAVE_COOLDOWN * 100)}%`;
-    }
-
-    if (cooldownText) {
-        cooldownText.textContent = waveCooldown > 0
-            ? `${waveCooldown.toFixed(1)}s`
-            : "READY";
+function updateCrystalCount() {
+    if (crystalCount) {
+        crystalCount.textContent = `${crystals}/5`;
     }
 }
 
-// Dag en nacht
-function updateCycle(dt) {
-    cycleTime += dt;
-
-    if (!isNight && cycleTime >= DAY_DURATION) {
-        isNight = true;
-        cycleTime = 0;
-        showMessage("De wereld wordt donker...");
-    }
-
-    if (isNight && cycleTime >= NIGHT_DURATION) {
-        isNight = false;
-        cycleTime = 0;
-        showMessage("Het licht is terug.");
-    }
-}
-
-// Berichten
-let messageTimer = 0;
+// ==========================================
+// BERICHTEN
+// ==========================================
 
 function showMessage(text) {
     if (!message) return;
@@ -322,25 +333,32 @@ function updateMessage(dt) {
     }
 }
 
-// Camera
+// ==========================================
+// CAMERA
+// ==========================================
+
 function updateCamera() {
     camera.x = player.x - canvas.width / 2;
     camera.y = player.y - canvas.height / 2;
 
-    camera.x = Math.max(0, Math.min(WORLD_SIZE - canvas.width, camera.x));
-    camera.y = Math.max(0, Math.min(WORLD_SIZE - canvas.height, camera.y));
+    camera.x = Math.max(0, Math.min(
+        WORLD_SIZE - canvas.width, camera.x
+    ));
+
+    camera.y = Math.max(0, Math.min(
+        WORLD_SIZE - canvas.height, camera.y
+    ));
 }
 
-// Tekenen
+// ==========================================
+// WERELD TEKENEN
+// ==========================================
+
 function drawWorld() {
-    ctx.fillStyle = isNight ? "#101b24" : "#334b3b";
+    ctx.fillStyle = "#263b31";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Grondpatroon
-    ctx.strokeStyle = isNight
-        ? "rgba(100,150,160,0.07)"
-        : "rgba(180,210,170,0.07)";
-
+    ctx.strokeStyle = "rgba(180,210,170,0.08)";
     ctx.lineWidth = 1;
 
     for (let x = -camera.x % 80; x < canvas.width; x += 80) {
@@ -357,9 +375,9 @@ function drawWorld() {
         ctx.stroke();
     }
 
-    // Wereldgrens
     ctx.strokeStyle = "#829b85";
     ctx.lineWidth = 5;
+
     ctx.strokeRect(
         -camera.x,
         -camera.y,
@@ -380,12 +398,12 @@ function drawTrees() {
         ctx.fillStyle = "#493a2d";
         ctx.fillRect(x - 5, y, 10, tree.size);
 
-        ctx.fillStyle = isNight ? "#18382f" : "#244f36";
+        ctx.fillStyle = "#244f36";
         ctx.beginPath();
         ctx.arc(x, y, tree.size, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = isNight ? "#245044" : "#376a43";
+        ctx.fillStyle = "#376a43";
         ctx.beginPath();
         ctx.arc(x - 5, y - 5, tree.size * 0.65, 0, Math.PI * 2);
         ctx.fill();
@@ -402,8 +420,14 @@ function drawRocks() {
             y > canvas.height + 30) return;
 
         ctx.fillStyle = "#697477";
+
         ctx.beginPath();
-        ctx.ellipse(x, y, rock.size, rock.size * 0.7, 0, 0, Math.PI * 2);
+        ctx.ellipse(
+            x, y,
+            rock.size,
+            rock.size * 0.7,
+            0, 0, Math.PI * 2
+        );
         ctx.fill();
     });
 }
@@ -414,12 +438,6 @@ function drawCrystals() {
 
         const x = crystal.x - camera.x;
         const y = crystal.y - camera.y;
-
-        const visible = waves.some(wave =>
-            Math.hypot(crystal.x - wave.x, crystal.y - wave.y) < wave.radius
-        );
-
-        if (!visible && isNight) return;
 
         crystal.pulse += 0.05;
 
@@ -453,25 +471,23 @@ function drawEnemies() {
             x > canvas.width + 50 ||
             y > canvas.height + 50) return;
 
-        if (isNight && !enemy.alert) return;
-
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(enemy.angle);
 
-        // Alien body
+        // Alien lichaam
         ctx.fillStyle = "#a4c76d";
         ctx.beginPath();
         ctx.ellipse(0, 0, 17, 12, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Head
+        // Alien hoofd
         ctx.fillStyle = "#b8df82";
         ctx.beginPath();
         ctx.ellipse(10, -3, 10, 9, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Eyes
+        // Ogen
         ctx.fillStyle = "#ff526b";
         ctx.beginPath();
         ctx.arc(14, -6, 2.5, 0, Math.PI * 2);
@@ -479,33 +495,6 @@ function drawEnemies() {
 
         ctx.restore();
     });
-}
-
-function drawPlayer() {
-    const x = player.x - camera.x;
-    const y = player.y - camera.y;
-
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Schaduw
-    ctx.fillStyle = "rgba(0,0,0,0.3)";
-    ctx.beginPath();
-    ctx.ellipse(0, 12, 15, 7, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Speler
-    ctx.fillStyle = "#e6e3d6";
-    ctx.beginPath();
-    ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = "#65d9df";
-    ctx.beginPath();
-    ctx.arc(0, -3, 9, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
 }
 
 function drawPortal() {
@@ -532,16 +521,60 @@ function drawPortal() {
     ctx.restore();
 }
 
+// ==========================================
+// DONKERTE + ZICHT DOOR SHOCKWAVES
+// ==========================================
+
+function drawNightEffect() {
+    const dark = darknessCtx;
+
+    // Hele scherm zwart maken
+    dark.clearRect(0, 0, darknessCanvas.width, darknessCanvas.height);
+    dark.globalCompositeOperation = "source-over";
+    dark.fillStyle = "#02050b";
+    dark.fillRect(0, 0, darknessCanvas.width, darknessCanvas.height);
+
+    // Shockwaves maken gaten in het donkere scherm
+    dark.globalCompositeOperation = "destination-out";
+
+    waves.forEach(wave => {
+        const x = wave.x - camera.x;
+        const y = wave.y - camera.y;
+
+        const gradient = dark.createRadialGradient(
+            x, y, 0,
+            x, y, wave.radius
+        );
+
+        const reveal = Math.min(1, wave.alpha * 1.8);
+
+        gradient.addColorStop(0, `rgba(0,0,0,${reveal})`);
+        gradient.addColorStop(0.75, `rgba(0,0,0,${reveal * 0.9})`);
+        gradient.addColorStop(1, "rgba(0,0,0,0)");
+
+        dark.fillStyle = gradient;
+        dark.beginPath();
+        dark.arc(x, y, wave.radius, 0, Math.PI * 2);
+        dark.fill();
+    });
+
+    dark.globalCompositeOperation = "source-over";
+
+    // Donkere laag over de wereld plaatsen
+    ctx.drawImage(darknessCanvas, 0, 0);
+}
+
+// ==========================================
+// SHOCKWAVE RING TEKENEN
+// ==========================================
+
 function drawWaves() {
     waves.forEach(wave => {
+        const x = wave.x - camera.x;
+        const y = wave.y - camera.y;
+
         ctx.beginPath();
-        ctx.arc(
-            wave.x - camera.x,
-            wave.y - camera.y,
-            wave.radius,
-            0,
-            Math.PI * 2
-        );
+        ctx.arc(x, y, wave.radius, 0, Math.PI * 2);
 
         ctx.strokeStyle = `rgba(100,230,255,${wave.alpha})`;
         ctx.lineWidth = 3;
@@ -549,38 +582,56 @@ function drawWaves() {
     });
 }
 
-function drawNightEffect() {
-    if (!isNight) return;
+// ==========================================
+// SPELER TEKENEN
+// ==========================================
 
-    ctx.fillStyle = "rgba(3, 8, 20, 0.72)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Licht rond de speler
+function drawPlayer() {
     const x = player.x - camera.x;
     const y = player.y - camera.y;
 
-    const light = ctx.createRadialGradient(x, y, 20, x, y, 190);
-    light.addColorStop(0, "rgba(255,255,255,0.12)");
-    light.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.save();
+    ctx.translate(x, y);
 
-    ctx.fillStyle = light;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(0, 12, 15, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#e6e3d6";
+    ctx.beginPath();
+    ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#65d9df";
+    ctx.beginPath();
+    ctx.arc(0, -3, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
 }
+
+// ==========================================
+// HUD
+// ==========================================
 
 function drawHUD() {
     if (hint) {
-        hint.textContent = "WASD: bewegen  |  SHIFT: sprinten  |  SPACE: geluidsgolf";
+        hint.textContent =
+            "WASD: bewegen | SHIFT: sprinten | SPACE: shockwave";
     }
 
-    // Gezondheid
-    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
     ctx.fillRect(20, 20, 160, 12);
 
     ctx.fillStyle = "#71d99a";
     ctx.fillRect(20, 20, 160 * (player.health / 100), 12);
 }
 
-// Game over
+// ==========================================
+// WINNEN EN VERLIEZEN
+// ==========================================
+
 function gameOver() {
     running = false;
 
@@ -597,7 +648,6 @@ function gameOver() {
     }, 1800);
 }
 
-// Winnen
 function checkWin() {
     if (crystals >= 5 && distance(player, portal) < 45) {
         running = false;
@@ -606,19 +656,24 @@ function checkWin() {
     }
 }
 
-// Update
+// ==========================================
+// UPDATE
+// ==========================================
+
 function update(dt) {
     updatePlayer(dt);
     updateEnemies(dt);
     updateCrystals();
     updateWaves(dt);
-    updateCycle(dt);
     updateMessage(dt);
     updateCamera();
     checkWin();
 }
 
-// Tekenen
+// ==========================================
+// RENDER
+// ==========================================
+
 function render() {
     drawWorld();
     drawTrees();
@@ -626,13 +681,18 @@ function render() {
     drawPortal();
     drawCrystals();
     drawEnemies();
+
+    // Eerst de duisternis en daarna de zichtbare speler
+    drawNightEffect();
     drawWaves();
     drawPlayer();
-    drawNightEffect();
     drawHUD();
 }
 
-// Game loop
+// ==========================================
+// GAME LOOP
+// ==========================================
+
 function gameLoop(time) {
     if (!running) return;
 
@@ -645,7 +705,7 @@ function gameLoop(time) {
     requestAnimationFrame(gameLoop);
 }
 
-// Startscherm
+// Beginstand
 menu.style.display = "flex";
 gameUI.style.display = "none";
 winScreen.style.display = "none";
