@@ -1,7 +1,7 @@
 
 // ==========================================
 // VÉLORA — THE WORLD THAT LISTENS
-// ALWAYS DARK + SHOCKWAVE VISION
+// DARKNESS + PLAYER LIGHT + SHOCKWAVES
 // ==========================================
 
 const canvas = document.getElementById("game");
@@ -20,13 +20,13 @@ const restartButton = document.getElementById("restartButton");
 
 const WORLD_SIZE = 2200;
 const WAVE_COOLDOWN = 5;
+const PLAYER_LIGHT_RADIUS = 115;
 
 let running = false;
 let lastTime = 0;
 let crystals = 0;
 let waveCooldown = 0;
 let keys = {};
-
 let camera = { x: 0, y: 0 };
 
 const player = {
@@ -42,18 +42,15 @@ let crystalObjects = [];
 let trees = [];
 let rocks = [];
 let waves = [];
-
 let portal = { x: 0, y: 0 };
 let messageTimer = 0;
 
-// Apart canvas voor het donker
 const darknessCanvas = document.createElement("canvas");
 const darknessCtx = darknessCanvas.getContext("2d");
 
 function resizeCanvas() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-
     darknessCanvas.width = canvas.width;
     darknessCanvas.height = canvas.height;
 }
@@ -87,7 +84,7 @@ function distance(a, b) {
 }
 
 // ==========================================
-// WERELD MAKEN
+// WERELD
 // ==========================================
 
 function createWorld() {
@@ -152,6 +149,8 @@ function createWorld() {
 function startGame() {
     crystals = 0;
     waveCooldown = 0;
+    messageTimer = 0;
+    keys = {};
 
     player.x = WORLD_SIZE / 2;
     player.y = WORLD_SIZE / 2;
@@ -238,7 +237,6 @@ function updatePlayer(dt) {
 
     if (dx !== 0 || dy !== 0) {
         const length = Math.hypot(dx, dy);
-
         dx /= length;
         dy /= length;
 
@@ -260,9 +258,7 @@ function updateEnemies(dt) {
     enemies.forEach(enemy => {
         const d = distance(player, enemy);
 
-        if (d < 170) {
-            enemy.alert = true;
-        }
+        if (d < 170) enemy.alert = true;
 
         if (enemy.alert) {
             const angle = Math.atan2(
@@ -377,13 +373,7 @@ function drawWorld() {
 
     ctx.strokeStyle = "#829b85";
     ctx.lineWidth = 5;
-
-    ctx.strokeRect(
-        -camera.x,
-        -camera.y,
-        WORLD_SIZE,
-        WORLD_SIZE
-    );
+    ctx.strokeRect(-camera.x, -camera.y, WORLD_SIZE, WORLD_SIZE);
 }
 
 function drawTrees() {
@@ -420,14 +410,8 @@ function drawRocks() {
             y > canvas.height + 30) return;
 
         ctx.fillStyle = "#697477";
-
         ctx.beginPath();
-        ctx.ellipse(
-            x, y,
-            rock.size,
-            rock.size * 0.7,
-            0, 0, Math.PI * 2
-        );
+        ctx.ellipse(x, y, rock.size, rock.size * 0.7, 0, 0, Math.PI * 2);
         ctx.fill();
     });
 }
@@ -475,19 +459,16 @@ function drawEnemies() {
         ctx.translate(x, y);
         ctx.rotate(enemy.angle);
 
-        // Alien lichaam
         ctx.fillStyle = "#a4c76d";
         ctx.beginPath();
         ctx.ellipse(0, 0, 17, 12, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Alien hoofd
         ctx.fillStyle = "#b8df82";
         ctx.beginPath();
         ctx.ellipse(10, -3, 10, 9, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Ogen
         ctx.fillStyle = "#ff526b";
         ctx.beginPath();
         ctx.arc(14, -6, 2.5, 0, Math.PI * 2);
@@ -522,19 +503,20 @@ function drawPortal() {
 }
 
 // ==========================================
-// DONKERTE + ZICHT DOOR SHOCKWAVES
+// DONKERTE + KLEINE LICHTCIRKEL
 // ==========================================
 
 function drawNightEffect() {
     const dark = darknessCtx;
 
-    // Hele scherm zwart maken
     dark.clearRect(0, 0, darknessCanvas.width, darknessCanvas.height);
+
+    // Hele scherm donker
     dark.globalCompositeOperation = "source-over";
     dark.fillStyle = "#02050b";
     dark.fillRect(0, 0, darknessCanvas.width, darknessCanvas.height);
 
-    // Shockwaves maken gaten in het donkere scherm
+    // Shockwaves maken grote gebieden zichtbaar
     dark.globalCompositeOperation = "destination-out";
 
     waves.forEach(wave => {
@@ -558,14 +540,31 @@ function drawNightEffect() {
         dark.fill();
     });
 
+    // Kleine permanente lichtcirkel rond speler
+    const px = player.x - camera.x;
+    const py = player.y - camera.y;
+
+    const playerLight = dark.createRadialGradient(
+        px, py, 5,
+        px, py, PLAYER_LIGHT_RADIUS
+    );
+
+    playerLight.addColorStop(0, "rgba(0,0,0,0.65)");
+    playerLight.addColorStop(0.45, "rgba(0,0,0,0.38)");
+    playerLight.addColorStop(1, "rgba(0,0,0,0)");
+
+    dark.fillStyle = playerLight;
+    dark.beginPath();
+    dark.arc(px, py, PLAYER_LIGHT_RADIUS, 0, Math.PI * 2);
+    dark.fill();
+
     dark.globalCompositeOperation = "source-over";
 
-    // Donkere laag over de wereld plaatsen
     ctx.drawImage(darknessCanvas, 0, 0);
 }
 
 // ==========================================
-// SHOCKWAVE RING TEKENEN
+// SHOCKWAVE RING
 // ==========================================
 
 function drawWaves() {
@@ -583,7 +582,7 @@ function drawWaves() {
 }
 
 // ==========================================
-// SPELER TEKENEN
+// SPELER
 // ==========================================
 
 function drawPlayer() {
@@ -629,7 +628,7 @@ function drawHUD() {
 }
 
 // ==========================================
-// WINNEN EN VERLIEZEN
+// WINNEN / GAME OVER
 // ==========================================
 
 function gameOver() {
@@ -682,7 +681,7 @@ function render() {
     drawCrystals();
     drawEnemies();
 
-    // Eerst de duisternis en daarna de zichtbare speler
+    // Eerst donkerte, dan zichtbare speler en shockwave
     drawNightEffect();
     drawWaves();
     drawPlayer();
@@ -705,7 +704,10 @@ function gameLoop(time) {
     requestAnimationFrame(gameLoop);
 }
 
-// Beginstand
+// ==========================================
+// BEGINSTAND
+// ==========================================
+
 menu.style.display = "flex";
 gameUI.style.display = "none";
 winScreen.style.display = "none";
