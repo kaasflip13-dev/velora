@@ -1,3 +1,4 @@
+
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
 
 * {
@@ -29,8 +30,7 @@ body {
     justify-content: center;
     align-items: center;
     text-align: center;
-    background:
-        radial-gradient(ellipse at center, #18234b 0%, #090b20 45%, #03040b 100%);
+    background: radial-gradient(ellipse at center, #18234b, #090b20 55%, #03040b);
 }
 
 .menu-content, .win-content {
@@ -123,6 +123,48 @@ header {
     font-size: 17px;
 }
 
+/* SHOCK WAVE COOLDOWN */
+
+#cooldownContainer {
+    position: fixed;
+    z-index: 4;
+    bottom: 78px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 210px;
+}
+
+.cooldown-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 7px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: #a7d9ee;
+}
+
+#cooldownText {
+    color: #64e9ff;
+}
+
+#cooldown {
+    width: 100%;
+    height: 8px;
+    background: #17263d;
+    border: 1px solid #42617d;
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+#cooldownBar {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, #42dfff, #8274ff);
+    box-shadow: 0 0 12px #42dfff;
+    transition: width .05s linear;
+}
+
 #hint {
     position: fixed;
     bottom: 25px;
@@ -135,6 +177,7 @@ header {
     border: 1px solid #5b9ecb55;
     background: #07101cbb;
     pointer-events: none;
+    white-space: nowrap;
 }
 
 #message {
@@ -178,5 +221,9 @@ header {
     #hint {
         width: 90%;
         text-align: center;
+    }
+
+    #cooldownContainer {
+        bottom: 85px;
     }
 }
