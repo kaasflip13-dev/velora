@@ -1,854 +1,555 @@
-
-"use strict";
-
 // ==========================================
-// STREETDRIVE — OPEN CITY
+// VÉLORA — THE WORLD THAT LISTENS
+// ORIGINAL 2D GAME
 // ==========================================
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-const mapCanvas = document.getElementById("map");
-const mapCtx = mapCanvas.getContext("2d");
 
-const $ = id => document.getElementById(id);
+const menu = document.getElementById("menu");
+const gameUI = document.getElementById("gameUI");
+const winScreen = document.getElementById("winScreen");
 
-let W = innerWidth;
-let H = innerHeight;
+let W, H;
+let running = false;
+let lastTime = 0;
+let elapsed = 0;
 
 function resize() {
-  W = canvas.width = innerWidth;
-  H = canvas.height = innerHeight;
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
 }
+window.addEventListener("resize", resize);
 resize();
-addEventListener("resize", resize);
 
-// ==========================================
-// GAME STATE
-// ==========================================
-
-let state = "menu";
-let lastTime = 0;
-let camera = {x:0,y:0};
-
-let money = 0;
-let totalDistance = 0;
-let missionDistance = 0;
-let missionNumber = 1;
-let missionReward = 150;
-let toastTimer = null;
-
-const player = {
-  x:0,
-  y:0,
-  angle:0,
-  speed:0,
-  maxSpeed:8,
-  acceleration:0.16,
-  turn:0.042,
-  color:"#36a9e8",
-  width:32,
-  height:58,
-  car:"CITY STARTER"
-};
-
-const ownedCars = ["starter"];
-let selectedCar = "starter";
-
-const carModels = [
-  {
-    id:"starter",
-    name:"City Starter",
-    price:0,
-    speed:8,
-    acceleration:0.16,
-    color:"#36a9e8",
-    icon:"🚙"
-  },
-  {
-    id:"sport",
-    name:"Street Sport",
-    price:500,
-    speed:12,
-    acceleration:0.22,
-    color:"#e64e42",
-    icon:"🏎️"
-  },
-  {
-    id:"classic",
-    name:"Classic GT",
-    price:1200,
-    speed:10,
-    acceleration:0.19,
-    color:"#e8bd56",
-    icon:"🚗"
-  },
-  {
-    id:"super",
-    name:"Super Racer",
-    price:3500,
-    speed:16,
-    acceleration:0.28,
-    color:"#a37af1",
-    icon:"🏎️"
-  }
-];
-
-let traffic = [];
-let particles = [];
-let trafficLights = [];
-
-// ==========================================
-// WORLD
-// ==========================================
-
-const BLOCK = 600;
-const ROAD = 150;
-const HALF_ROAD = ROAD / 2;
-
+const keys = {};
 const world = {
-  buildings:[],
-  trees:[],
-  parks:[],
-  lamps:[]
+    width: 2400,
+    height: 1800
 };
 
-function seededRandom(a,b) {
-  let n = Math.sin(a*127.1+b*311.7)*43758.5453;
-  return n-Math.floor(n);
+let player;
+let camera;
+let pulses;
+let particles;
+let crystals;
+let enemies;
+let plants;
+let walls;
+let collected;
+let messageTimer = 0;
+let audioContext = null;
+
+function random(min, max) {
+    return Math.random() * (max - min) + min;
 }
 
-function makeBlock(bx,by) {
-  const key = bx+"_"+by;
-
-  if(world.buildings.some(b=>b.key===key)) return;
-
-  const random = (n)=>seededRandom(bx*20+n,by*30+n);
-  const x = bx*BLOCK;
-  const y = by*BLOCK;
-
-  if(random(1)<0.17) {
-    world.parks.push({
-      key,x:x+ROAD/2,y:y+ROAD/2,
-      width:BLOCK-ROAD,height:BLOCK-ROAD
-    });
-
-    for(let i=0;i<12;i++){
-      world.trees.push({
-        x:x+ROAD+random(i+2)*(BLOCK-ROAD-60),
-        y:y+ROAD+random(i+20)*(BLOCK-ROAD-60),
-        size:15+random(i+30)*10
-      });
-    }
-    return;
-  }
-
-  const colors=["#a9a39a","#777f85","#b4a18c","#657b87","#8a9295","#9b8576"];
-
-  world.buildings.push({
-    key,
-    x:x+ROAD+35,
-    y:y+ROAD+35,
-    width:BLOCK-ROAD-70,
-    height:BLOCK-ROAD-70,
-    color:colors[Math.floor(random(3)*colors.length)],
-    roof:random(4)>.5?"#515c63":"#39464d"
-  });
-
-  for(let i=0;i<4;i++){
-    world.lamps.push({
-      x:x+ROAD+20+i*90,
-      y:y+ROAD+20
-    });
-  }
+function distance(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-function ensureWorld() {
-  const bx=Math.floor(player.x/BLOCK);
-  const by=Math.floor(player.y/BLOCK);
-
-  for(let x=bx-3;x<=bx+3;x++){
-    for(let y=by-3;y<=by+3;y++){
-      makeBlock(x,y);
-    }
-  }
-
-  world.buildings=world.buildings.filter(b=>
-    Math.abs(b.x-player.x)<2500&&Math.abs(b.y-player.y)<2500
-  );
-
-  world.trees=world.trees.filter(t=>
-    Math.abs(t.x-player.x)<2500&&Math.abs(t.y-player.y)<2500
-  );
-
-  world.parks=world.parks.filter(p=>
-    Math.abs(p.x-player.x)<2500&&Math.abs(p.y-player.y)<2500
-  );
+function showMessage(text) {
+    const el = document.getElementById("message");
+    el.textContent = text;
+    messageTimer = 2.5;
 }
 
-// ==========================================
-// TRAFFIC
-// ==========================================
-
-function spawnTraffic() {
-  traffic=[];
-
-  for(let i=0;i<32;i++){
-    const horizontal=Math.random()<0.5;
-    const direction=Math.random()<0.5?1:-1;
-    const lane=direction===1?-35:35;
-
-    traffic.push({
-      x:horizontal?
-        (player.x+(Math.random()-.5)*1800):
-        Math.round((player.x+(Math.random()-.5)*1500)/BLOCK)*BLOCK+lane,
-      y:horizontal?
-        Math.round((player.y+(Math.random()-.5)*1500)/BLOCK)*BLOCK+lane:
-        player.y+(Math.random()-.5)*1800,
-      horizontal,
-      direction,
-      speed:2+Math.random()*2.5,
-      color:["#e74c3c","#e9e9e9","#e4ba4d","#4889b7","#777e86","#222b34"][i%6],
-      angle:horizontal?
-        (direction===1?Math.PI/2:-Math.PI/2):
-        (direction===1?0:Math.PI)
-    });
-  }
-}
-
-function updateTraffic(dt) {
-  for(const car of traffic){
-    if(car.horizontal) car.x+=car.speed*car.direction*dt;
-    else car.y+=car.speed*car.direction*dt;
-
-    if(Math.abs(car.x-player.x)>1500 ||
-       Math.abs(car.y-player.y)>1500){
-      const direction=Math.random()<.5?1:-1;
-      car.direction=direction;
-
-      if(car.horizontal){
-        car.x=player.x+(Math.random()-.5)*1000;
-        car.y=Math.round((player.y+(Math.random()-.5)*1200)/BLOCK)*BLOCK+(direction===1?-35:35);
-      }else{
-        car.y=player.y+(Math.random()-.5)*1000;
-        car.x=Math.round((player.x+(Math.random()-.5)*1200)/BLOCK)*BLOCK+(direction===1?-35:35);
-      }
-
-      car.angle=car.horizontal?
-        (direction===1?Math.PI/2:-Math.PI/2):
-        (direction===1?0:Math.PI);
-    }
-  }
-}
-
-// ==========================================
-// DRAWING WORLD
-// ==========================================
-
-function screenX(x){return x-camera.x+W/2}
-function screenY(y){return y-camera.y+H/2}
-
-function drawRoads() {
-  ctx.fillStyle="#477e4c";
-  ctx.fillRect(0,0,W,H);
-
-  const minX=Math.floor((camera.x-W)/BLOCK)-1;
-  const maxX=Math.ceil((camera.x+W)/BLOCK)+1;
-  const minY=Math.floor((camera.y-H)/BLOCK)-1;
-  const maxY=Math.ceil((camera.y+H)/BLOCK)+1;
-
-  // Parkjes
-  for(const p of world.parks){
-    ctx.fillStyle="#367347";
-    ctx.fillRect(screenX(p.x),screenY(p.y),p.width,p.height);
-
-    ctx.fillStyle="#78946b";
-    ctx.fillRect(screenX(p.x+25),screenY(p.y+25),p.width-50,p.height-50);
-  }
-
-  // Wegen
-  ctx.fillStyle="#30383e";
-
-  for(let i=minX;i<=maxX;i++){
-    let x=screenX(i*BLOCK);
-    ctx.fillRect(x-HALF_ROAD,0,ROAD,H);
-  }
-
-  for(let i=minY;i<=maxY;i++){
-    let y=screenY(i*BLOCK);
-    ctx.fillRect(0,y-HALF_ROAD,W,ROAD);
-  }
-
-  // Trottoirs
-  ctx.fillStyle="#9c9d91";
-
-  for(let i=minX;i<=maxX;i++){
-    let x=screenX(i*BLOCK);
-    ctx.fillRect(x-HALF_ROAD,0,5,H);
-    ctx.fillRect(x+HALF_ROAD-5,0,5,H);
-  }
-
-  for(let i=minY;i<=maxY;i++){
-    let y=screenY(i*BLOCK);
-    ctx.fillRect(0,y-HALF_ROAD,W,5);
-    ctx.fillRect(0,y+HALF_ROAD-5,W,5);
-  }
-
-  // Rijstrookstrepen
-  ctx.strokeStyle="#d9d4a7";
-  ctx.lineWidth=3;
-  ctx.setLineDash([30,35]);
-
-  for(let i=minX;i<=maxX;i++){
-    let x=screenX(i*BLOCK);
-    ctx.beginPath();
-    ctx.moveTo(x,0);
-    ctx.lineTo(x,H);
-    ctx.stroke();
-  }
-
-  for(let i=minY;i<=maxY;i++){
-    let y=screenY(i*BLOCK);
-    ctx.beginPath();
-    ctx.moveTo(0,y);
-    ctx.lineTo(W,y);
-    ctx.stroke();
-  }
-
-  ctx.setLineDash([]);
-}
-
-function drawBuildings() {
-  for(const b of world.buildings){
-    const x=screenX(b.x);
-    const y=screenY(b.y);
-
-    if(x+b.width<0||x>W||y+b.height<0||y>H)continue;
-
-    ctx.fillStyle="#1c2925";
-    ctx.fillRect(x+9,y+12,b.width,b.height);
-
-    ctx.fillStyle=b.color;
-    ctx.fillRect(x,y,b.width,b.height);
-
-    ctx.fillStyle=b.roof;
-    ctx.fillRect(x+10,y+10,b.width-20,b.height-20);
-
-    // Daken
-    ctx.fillStyle="#56646a";
-    ctx.fillRect(x+22,y+22,b.width-44,10);
-
-    // Ramen
-    for(let wx=20;wx<b.width-15;wx+=38){
-      for(let wy=40;wy<b.height-15;wy+=42){
-        ctx.fillStyle="#d5c99b";
-        ctx.fillRect(x+wx,y+wy,17,20);
-      }
-    }
-  }
-}
-
-function drawTrees() {
-  for(const t of world.trees){
-    const x=screenX(t.x);
-    const y=screenY(t.y);
-
-    if(x<-40||x>W+40||y<-40||y>H+40)continue;
-
-    ctx.fillStyle="#4c3825";
-    ctx.fillRect(x-4,y,8,16);
-
-    ctx.fillStyle="#183f2b";
-    ctx.beginPath();
-    ctx.arc(x+3,y+5,t.size+3,0,Math.PI*2);
-    ctx.fill();
-
-    ctx.fillStyle="#28643a";
-    ctx.beginPath();
-    ctx.arc(x,y,t.size,0,Math.PI*2);
-    ctx.fill();
-
-    ctx.fillStyle="#39854a";
-    ctx.beginPath();
-    ctx.arc(x-5,y-5,t.size*.55,0,Math.PI*2);
-    ctx.fill();
-  }
-}
-
-// ==========================================
-// CARS
-// ==========================================
-
-function drawCar(x,y,angle,color,scale=1,isPlayer=false) {
-  ctx.save();
-  ctx.translate(x,y);
-  ctx.rotate(angle);
-  ctx.scale(scale,scale);
-
-  // Schaduw
-  ctx.fillStyle="#10181788";
-  ctx.fillRect(-17,-25,39,65);
-
-  // Wielen
-  ctx.fillStyle="#121719";
-  ctx.fillRect(-19,-23,8,17);
-  ctx.fillRect(11,-23,8,17);
-  ctx.fillRect(-19,12,8,17);
-  ctx.fillRect(11,12,8,17);
-
-  // Carrosserie
-  ctx.fillStyle=color;
-  ctx.beginPath();
-  ctx.roundRect(-16,-31,32,62,8);
-  ctx.fill();
-
-  // Motorkap
-  ctx.fillStyle=color;
-  ctx.beginPath();
-  ctx.roundRect(-13,-26,26,13,4);
-  ctx.fill();
-
-  // Ramen
-  ctx.fillStyle="#263c49";
-  ctx.beginPath();
-  ctx.roundRect(-12,-12,24,24,5);
-  ctx.fill();
-
-  ctx.fillStyle="#9bc9d3";
-  ctx.fillRect(-10,-9,20,8);
-
-  ctx.fillStyle="#47717e";
-  ctx.fillRect(-10,3,20,7);
-
-  // Koplampen
-  ctx.fillStyle="#fff4bb";
-  ctx.fillRect(-12,-29,7,4);
-  ctx.fillRect(5,-29,7,4);
-
-  // Achterlichten
-  ctx.fillStyle="#ff423b";
-  ctx.fillRect(-12,26,7,4);
-  ctx.fillRect(5,26,7,4);
-
-  if(isPlayer){
-    ctx.strokeStyle="#ffffff";
-    ctx.lineWidth=1.5;
-    ctx.strokeRect(-16,-31,32,62);
-  }
-
-  ctx.restore();
-}
-
-function drawTraffic() {
-  for(const car of traffic){
-    drawCar(screenX(car.x),screenY(car.y),car.angle,car.color,.85);
-  }
-}
-
-// ==========================================
-// COLLISIONS
-// ==========================================
-
-function collision() {
-  // Botsingen met gebouwen
-  for(const b of world.buildings){
-    if(player.x>b.x-30 &&
-       player.x<b.x+b.width+30 &&
-       player.y>b.y-30 &&
-       player.y<b.y+b.height+30){
-      player.speed=-player.speed*.35;
-      player.x-=Math.sin(player.angle)*12;
-      player.y+=Math.cos(player.angle)*12;
-    }
-  }
-
-  // Botsingen met andere auto's
-  for(const car of traffic){
-    const dx=player.x-car.x;
-    const dy=player.y-car.y;
-
-    if(Math.abs(dx)<30&&Math.abs(dy)<42){
-      player.speed*=.65;
-      player.x+=dx*.15;
-      player.y+=dy*.15;
-    }
-  }
-}
-
-// ==========================================
-// PLAYER
-// ==========================================
-
-
-function updatePlayer(dt) {
-  const forward = keys.w || keys.arrowup;
-  const backward = keys.s || keys.arrowdown;
-  const left = keys.a || keys.arrowleft;
-  const right = keys.d || keys.arrowright;
-
-  // GAS EN REMMEN
-  if (forward) {
-    player.speed += player.acceleration * dt;
-  } else if (backward) {
-    if (player.speed > 0.3) {
-      player.speed -= player.acceleration * 2.2 * dt;
-    } else {
-      player.speed -= player.acceleration * dt;
-    }
-  } else {
-    player.speed *= Math.pow(0.97, dt);
-  }
-
-  player.speed = Math.max(-3.5, Math.min(player.maxSpeed, player.speed));
-
-  // STUREN
-  const steeringInput = (right ? 1 : 0) - (left ? 1 : 0);
-  const speedFactor = Math.min(1, Math.max(0.35, Math.abs(player.speed) / 4));
-  const reverseFactor = player.speed < 0 ? -1 : 1;
-
-  player.angle += steeringInput * player.turn * speedFactor * reverseFactor * dt;
-
-  // BEWEGING
-  const oldX = player.x;
-  const oldY = player.y;
-
-  player.x += Math.sin(player.angle) * player.speed * dt;
-  player.y -= Math.cos(player.angle) * player.speed * dt;
-
-  // AFSTAND
-  if (player.speed > 0) {
-    const travelled = player.speed * dt * 0.13;
-    totalDistance += travelled;
-    missionDistance += travelled;
-  }
-
-  // BOTSINGEN
-  collision();
-
-  // Camera volgt de auto
-  const smooth = 1 - Math.pow(0.88, dt);
-  camera.x += (player.x - camera.x) * smooth;
-  camera.y += (player.y - camera.y) * smooth;
-}
-
-
-// ==========================================
-// MISSIONS
-// ==========================================
-
-function updateMission(){
-  const goal=500;
-
-  if(missionDistance>=goal){
-    missionDistance-=goal;
-    money+=missionReward;
-
-    showToast("MISSION COMPLETED! +€"+missionReward);
-
-    missionNumber++;
-    missionReward+=50;
-  }
-
-  const progress=Math.min(100,missionDistance/goal*100);
-
-  $("missionTitle").innerText="City Explorer #"+missionNumber;
-  $("missionProgress").style.width=progress+"%";
-  $("missionText").innerText=
-    Math.floor(missionDistance)+" / "+goal+" meters";
-}
-
-// ==========================================
-// MINIMAP
-// ==========================================
-
-function drawMap(){
-  const s=mapCanvas.width;
-  mapCtx.fillStyle="#477e4c";
-  mapCtx.fillRect(0,0,s,s);
-
-  mapCtx.fillStyle="#343d42";
-
-  for(let i=-2;i<=2;i++){
-    let pos=s/2+i*BLOCK/10;
-    mapCtx.fillRect(pos-7,0,14,s);
-    mapCtx.fillRect(0,pos-7,s,14);
-  }
-
-  mapCtx.fillStyle="#a4a89c";
-
-  for(const b of world.buildings){
-    let x=s/2+(b.x-player.x)/10;
-    let y=s/2+(b.y-player.y)/10;
-    mapCtx.fillRect(x,y,b.width/10,b.height/10);
-  }
-
-  mapCtx.fillStyle="#f1c75a";
-  for(const car of traffic){
-    let x=s/2+(car.x-player.x)/10;
-    let y=s/2+(car.y-player.y)/10;
-    if(x>0&&x<s&&y>0&&y<s){
-      mapCtx.fillRect(x-2,y-2,4,4);
-    }
-  }
-
-  mapCtx.save();
-  mapCtx.translate(s/2,s/2);
-  mapCtx.rotate(player.angle);
-  mapCtx.fillStyle="#80f0a8";
-  mapCtx.beginPath();
-  mapCtx.moveTo(0,-9);
-  mapCtx.lineTo(-6,7);
-  mapCtx.lineTo(6,7);
-  mapCtx.closePath();
-  mapCtx.fill();
-  mapCtx.restore();
-}
-
-// ==========================================
-// HUD
-// ==========================================
-
-function updateHUD(){
-  $("money").innerText=money.toLocaleString("nl-NL");
-  $("garageMoney").innerText=money.toLocaleString("nl-NL");
-  $("speed").innerText=Math.round(Math.abs(player.speed)*16);
-  $("gear").innerText=player.speed<-.2?"R":player.speed>.2?"D":"N";
-  $("carName").innerText=player.car.toUpperCase();
-}
-
-// ==========================================
-// GARAGE
-// ==========================================
-
-function renderGarage(){
-  const container=$("garageCars");
-  container.innerHTML="";
-
-  for(const car of carModels){
-    const owned=ownedCars.includes(car.id);
-    const selected=selectedCar===car.id;
-
-    const div=document.createElement("div");
-    div.className="car-option";
-
-    const preview=document.createElement("div");
-    preview.className="car-preview";
-    preview.textContent=car.icon;
-
-    const name=document.createElement("h3");
-    name.textContent=car.name;
-
-    const stats=document.createElement("p");
-    stats.textContent="Maximum speed: "+car.speed*16+" KM/H";
-
-    const button=document.createElement("button");
-
-    if(selected)button.textContent="SELECTED";
-    else if(owned)button.textContent="SELECT CAR";
-    else button.textContent="BUY €"+car.price;
-
-    button.onclick=()=>{
-      if(owned){
-        selectCar(car);
-      }else if(money>=car.price){
-        money-=car.price;
-        ownedCars.push(car.id);
-        showToast(car.name+" PURCHASED!");
-        selectCar(car);
-      }else{
-        showToast("NOT ENOUGH MONEY!");
-      }
-
-      renderGarage();
-      updateHUD();
+function startGame() {
+    menu.style.display = "none";
+    winScreen.style.display = "none";
+    gameUI.style.display = "block";
+
+    player = {
+        x: 200,
+        y: 200,
+        radius: 13,
+        speed: 210,
+        direction: 0,
+        pulseCooldown: 0,
+        reveal: 0
     };
 
-    div.append(preview,name,stats,button);
-    container.appendChild(div);
-  }
+    camera = { x: 0, y: 0 };
+    pulses = [];
+    particles = [];
+    collected = 0;
+    elapsed = 0;
 
-  updateHUD();
-}
+    crystals = [
+        {x: 470, y: 310, found:false},
+        {x: 900, y: 650, found:false},
+        {x: 1300, y: 300, found:false},
+        {x: 1750, y: 1100, found:false},
+        {x: 2150, y: 1500, found:false}
+    ];
 
-function selectCar(car){
-  selectedCar=car.id;
-  player.maxSpeed=car.speed;
-  player.acceleration=car.acceleration;
-  player.color=car.color;
-  player.car=car.name;
-  showToast(car.name+" SELECTED!");
-}
+    enemies = [
+        {x:650,y:430,speed:65,angle:0,alert:0},
+        {x:1100,y:900,speed:55,angle:0,alert:0},
+        {x:1600,y:550,speed:75,angle:0,alert:0},
+        {x:1950,y:1300,speed:60,angle:0,alert:0}
+    ];
 
-function openGarage(){
-  const previous=state;
-  if(previous==="playing"){
-    state="garage";
-    $("hud").classList.add("hidden");
-  }else if(previous==="paused"){
-    state="garage";
-  }else{
-    state="garageMenu";
-  }
+    walls = [];
+    plants = [];
 
-  $("mainMenu").classList.add("hidden");
-  $("pauseMenu").classList.add("hidden");
-  $("garageMenu").classList.remove("hidden");
+    // World structures
+    for (let i = 0; i < 48; i++) {
+        let x = random(100, world.width - 100);
+        let y = random(100, world.height - 100);
 
-  renderGarage();
-}
-
-function closeGarage(){
-  $("garageMenu").classList.add("hidden");
-
-  if(state==="garage"){
-    if(previousState==="playing"){
-      resumeGame();
-    }else{
-      state="paused";
-      $("pauseMenu").classList.remove("hidden");
+        if (Math.hypot(x - 200, y - 200) > 180) {
+            walls.push({
+                x, y,
+                w: random(35, 95),
+                h: random(35, 95)
+            });
+        }
     }
-  }else{
-    state="menu";
-    $("mainMenu").classList.remove("hidden");
-  }
+
+    for (let i = 0; i < 180; i++) {
+        plants.push({
+            x: random(0, world.width),
+            y: random(0, world.height),
+            size: random(5, 15),
+            phase: random(0, 6.28)
+        });
+    }
+
+    running = true;
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
 }
 
-let previousState="menu";
-
-function showToast(message){
-  const el=$("toast");
-  el.textContent=message;
-  el.classList.add("show");
-
-  clearTimeout(toastTimer);
-  toastTimer=setTimeout(()=>el.classList.remove("show"),2200);
+function startAudio() {
+    try {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext.state === "suspended") audioContext.resume();
+    } catch(e) {}
 }
 
-// ==========================================
-// MENUS
-// ==========================================
+function sound(frequency, duration, volume = 0.04) {
+    if (!audioContext) return;
 
-function startGame(){
-  state="playing";
+    try {
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
 
-  player.x=0;
-  player.y=0;
-  player.angle=0;
-  player.speed=0;
+        osc.type = "sine";
+        osc.frequency.value = frequency;
+        gain.gain.setValueAtTime(volume, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(
+            0.001, audioContext.currentTime + duration
+        );
 
-  camera.x=0;
-  camera.y=0;
-
-  totalDistance=0;
-  missionDistance=0;
-  missionNumber=1;
-  missionReward=150;
-
-  world.buildings=[];
-  world.trees=[];
-  world.parks=[];
-  world.lamps=[];
-
-  ensureWorld();
-  spawnTraffic();
-
-  $("mainMenu").classList.add("hidden");
-  $("pauseMenu").classList.add("hidden");
-  $("garageMenu").classList.add("hidden");
-  $("hud").classList.remove("hidden");
-
-  lastTime=performance.now();
-  requestAnimationFrame(gameLoop);
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+        osc.start();
+        osc.stop(audioContext.currentTime + duration);
+    } catch(e) {}
 }
 
-function pauseGame(){
-  if(state!=="playing")return;
+function pulse() {
+    if (!running || player.pulseCooldown > 0) return;
 
-  state="paused";
-  $("pauseMenu").classList.remove("hidden");
+    player.pulseCooldown = 1.1;
+
+    pulses.push({
+        x: player.x,
+        y: player.y,
+        radius: 5,
+        maxRadius: 410,
+        alpha: 1
+    });
+
+    player.reveal = 3;
+
+    sound(180, 0.7, 0.07);
+    showMessage("THE WORLD IS LISTENING");
+
+    // Monsters hear the pulse
+    enemies.forEach(enemy => {
+        enemy.alert = 3.5;
+        enemy.target = {x: player.x, y: player.y};
+    });
+
+    for (let i = 0; i < 25; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: random(-120, 120),
+            vy: random(-120, 120),
+            life: random(.3, .9)
+        });
+    }
 }
 
-function resumeGame(){
-  state="playing";
-  $("pauseMenu").classList.add("hidden");
-  $("hud").classList.remove("hidden");
+function collides(x, y, radius) {
+    if (x < radius || y < radius ||
+        x > world.width - radius ||
+        y > world.height - radius) return true;
 
-  lastTime=performance.now();
-  requestAnimationFrame(gameLoop);
+    for (const wall of walls) {
+        const nearestX = Math.max(wall.x, Math.min(x, wall.x + wall.w));
+        const nearestY = Math.max(wall.y, Math.min(y, wall.y + wall.h));
+
+        if (Math.hypot(x - nearestX, y - nearestY) < radius) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
-function mainMenu(){
-  state="menu";
-
-  $("pauseMenu").classList.add("hidden");
-  $("garageMenu").classList.add("hidden");
-  $("hud").classList.add("hidden");
-  $("mainMenu").classList.remove("hidden");
+function movePlayer(dx, dy) {
+    if (!collides(player.x + dx, player.y, player.radius)) {
+        player.x += dx;
+    }
+    if (!collides(player.x, player.y + dy, player.radius)) {
+        player.y += dy;
+    }
 }
 
-// ==========================================
-// MAIN RENDER LOOP
-// ==========================================
+function update(dt) {
+    elapsed += dt;
 
-function draw(){
-  ensureWorld();
+    const sprint = keys["Shift"] ? 1.5 : 1;
+    let dx = 0, dy = 0;
 
-  drawRoads();
-  drawBuildings();
-  drawTrees();
-  drawTraffic();
+    if (keys["w"] || keys["ArrowUp"]) dy--;
+    if (keys["s"] || keys["ArrowDown"]) dy++;
+    if (keys["a"] || keys["ArrowLeft"]) dx--;
+    if (keys["d"] || keys["ArrowRight"]) dx++;
 
-  drawCar(
-    W/2,
-    H/2,
-    player.angle,
-    player.color,
-    1.15,
-    true
-  );
+    if (dx || dy) {
+        const len = Math.hypot(dx, dy);
+        dx /= len;
+        dy /= len;
 
-  drawMap();
+        player.direction = Math.atan2(dy, dx);
+        movePlayer(dx * player.speed * sprint * dt,
+                   dy * player.speed * sprint * dt);
+    }
+
+    player.pulseCooldown = Math.max(0, player.pulseCooldown - dt);
+    player.reveal = Math.max(0, player.reveal - dt);
+
+    pulses.forEach(p => {
+        p.radius += 700 * dt;
+        p.alpha = Math.max(0, 1 - p.radius / p.maxRadius);
+    });
+    pulses = pulses.filter(p => p.radius < p.maxRadius);
+
+    particles.forEach(p => {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+    });
+    particles = particles.filter(p => p.life > 0);
+
+    enemies.forEach(enemy => {
+        enemy.alert = Math.max(0, enemy.alert - dt);
+
+        let tx = enemy.x + Math.cos(elapsed + enemy.angle) * 30;
+        let ty = enemy.y + Math.sin(elapsed * .7 + enemy.angle) * 30;
+
+        if (enemy.alert > 0 && enemy.target) {
+            tx = enemy.target.x;
+            ty = enemy.target.y;
+        }
+
+        const angle = Math.atan2(ty - enemy.y, tx - enemy.x);
+        const speed = enemy.alert > 0 ? enemy.speed * 1.7 : enemy.speed * .35;
+
+        const nx = enemy.x + Math.cos(angle) * speed * dt;
+        const ny = enemy.y + Math.sin(angle) * speed * dt;
+
+        if (!collides(nx, ny, 15)) {
+            enemy.x = nx;
+            enemy.y = ny;
+        }
+
+        // They chase but do not kill the player.
+        if (distance(enemy, player) < 25) {
+            enemy.alert = 0;
+            const push = Math.atan2(enemy.y-player.y, enemy.x-player.x);
+            enemy.x += Math.cos(push) * 90 * dt;
+            enemy.y += Math.sin(push) * 90 * dt;
+            showMessage("SOMETHING HEARD YOU...");
+        }
+    });
+
+    crystals.forEach(crystal => {
+        if (!crystal.found && distance(player, crystal) < 30) {
+            crystal.found = true;
+            collected++;
+            document.getElementById("crystalCount").textContent = collected;
+            sound(500 + collected * 100, .5, .08);
+            showMessage("MEMORY RECOVERED  " + collected + " / 5");
+
+            for (let i = 0; i < 18; i++) {
+                particles.push({
+                    x: crystal.x,
+                    y: crystal.y,
+                    vx: random(-90, 90),
+                    vy: random(-90, 90),
+                    life: 1
+                });
+            }
+        }
+    });
+
+    if (collected >= 5 && distance(player, {
+        x: world.width - 120,
+        y: world.height - 120
+    }) < 65) {
+        winGame();
+    }
+
+    camera.x = Math.max(0, Math.min(
+        world.width - W,
+        player.x - W / 2
+    ));
+
+    camera.y = Math.max(0, Math.min(
+        world.height - H,
+        player.y - H / 2
+    ));
+
+    if (messageTimer > 0) {
+        messageTimer -= dt;
+        if (messageTimer <= 0) {
+            document.getElementById("message").textContent = "";
+        }
+    }
 }
 
-function gameLoop(time){
-  if(state!=="playing")return;
+function drawWorld() {
+    ctx.fillStyle = "#080b19";
+    ctx.fillRect(0, 0, W, H);
 
-  const dt=Math.min((time-lastTime)/16.667,2);
-  lastTime=time;
+    // Background stars
+    for (let i = 0; i < 180; i++) {
+        const x = (i * 173 % world.width) - camera.x;
+        const y = (i * 293 % world.height) - camera.y;
 
-  updatePlayer(dt);
-  updateTraffic(dt);
-  updateMission();
-  updateHUD();
+        if (x >= 0 && x <= W && y >= 0 && y <= H) {
+            ctx.fillStyle = "rgba(120,170,255,0.12)";
+            ctx.fillRect(x, y, 2, 2);
+        }
+    }
 
-  draw();
+    ctx.save();
+    ctx.translate(-camera.x, -camera.y);
 
-  requestAnimationFrame(gameLoop);
+    // Ground patterns
+    ctx.strokeStyle = "rgba(80,120,180,0.07)";
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x < world.width; x += 100) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, world.height);
+        ctx.stroke();
+    }
+
+    for (let y = 0; y < world.height; y += 100) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(world.width, y);
+        ctx.stroke();
+    }
+
+    // Structures are visible only when revealed
+    const reveal = player.reveal > 0;
+
+    if (reveal) {
+        walls.forEach(w => {
+            ctx.fillStyle = "#182743";
+            ctx.fillRect(w.x, w.y, w.w, w.h);
+            ctx.strokeStyle = "#54c9ee";
+            ctx.strokeRect(w.x, w.y, w.w, w.h);
+        });
+    }
+
+    // Plants
+    plants.forEach(p => {
+        const glow = .3 + Math.sin(elapsed * 2 + p.phase) * .2;
+
+        ctx.globalAlpha = reveal ? 1 : .12;
+        ctx.fillStyle = "#4cdbba";
+        ctx.shadowBlur = reveal ? 15 : 0;
+        ctx.shadowColor = "#39ffd0";
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // Crystals
+    crystals.forEach(c => {
+        if (c.found) return;
+
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        ctx.rotate(elapsed * .7);
+
+        ctx.globalAlpha = reveal ? 1 : .12;
+        ctx.shadowBlur = reveal ? 30 : 0;
+        ctx.shadowColor = "#57dfff";
+        ctx.fillStyle = "#81edff";
+
+        ctx.beginPath();
+        ctx.moveTo(0, -17);
+        ctx.lineTo(12, 0);
+        ctx.lineTo(0, 17);
+        ctx.lineTo(-12, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+    });
+
+    // Exit
+    const exitX = world.width - 120;
+    const exitY = world.height - 120;
+
+    ctx.globalAlpha = collected >= 5 ? 1 : .15;
+    ctx.shadowBlur = collected >= 5 ? 35 : 0;
+    ctx.shadowColor = "#8e74ff";
+    ctx.strokeStyle = "#9b8aff";
+    ctx.lineWidth = 4;
+
+    ctx.beginPath();
+    ctx.arc(exitX, exitY, 35 + Math.sin(elapsed * 2) * 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // Enemies
+    enemies.forEach(e => {
+        ctx.globalAlpha = reveal ? 1 : .12;
+        ctx.shadowBlur = reveal ? 20 : 0;
+        ctx.shadowColor = "#ff4b91";
+        ctx.fillStyle = "#d73d79";
+
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, 15, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(e.x - 5, e.y - 3, 3, 0, Math.PI * 2);
+        ctx.arc(e.x + 5, e.y - 3, 3, 0, Math.PI * 2);
+        ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // Pulses
+    pulses.forEach(p => {
+        ctx.globalAlpha = p.alpha;
+        ctx.strokeStyle = "#5be5ff";
+        ctx.lineWidth = 4;
+        ctx.shadowBlur = 25;
+        ctx.shadowColor = "#44dfff";
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // Particles
+    particles.forEach(p => {
+        ctx.globalAlpha = Math.min(1, p.life);
+        ctx.fillStyle = "#83eaff";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    // Player
+    ctx.shadowBlur = 25;
+    ctx.shadowColor = "#62eaff";
+    ctx.fillStyle = "#e1faff";
+
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#69dfff";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, 21, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Dark vision mask
+    if (player.reveal <= 0) {
+        const px = player.x - camera.x;
+        const py = player.y - camera.y;
+
+        const gradient = ctx.createRadialGradient(
+            px, py, 10, px, py, 125
+        );
+
+        gradient.addColorStop(0, "rgba(3,5,15,0)");
+        gradient.addColorStop(1, "rgba(3,5,15,0.94)");
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, W, H);
+    }
 }
 
-// ==========================================
-// BUTTONS
-// ==========================================
+function winGame() {
+    running = false;
+    gameUI.style.display = "none";
+    winScreen.style.display = "flex";
+}
 
-$("playBtn").onclick=startGame;
+function loop(time) {
+    if (!running) return;
 
-$("garageBtn").onclick=()=>{
-  previousState="menu";
-  openGarage();
-};
+    const dt = Math.min((time - lastTime) / 1000, 0.04);
+    lastTime = time;
 
-$("pauseGarageBtn").onclick=()=>{
-  previousState="paused";
-  openGarage();
-};
+    update(dt);
+    drawWorld();
 
-$("closeGarage").onclick=closeGarage;
-$("resumeBtn").onclick=resumeGame;
-$("quitBtn").onclick=mainMenu;
+    requestAnimationFrame(loop);
+}
 
-// ==========================================
-// INITIALIZATION
-// ==========================================
+// Controls
+window.addEventListener("keydown", e => {
+    const key = e.key.toLowerCase();
 
-renderGarage();
-updateHUD();
+    if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) {
+        e.preventDefault();
+    }
 
+    keys[key] = true;
+
+    if (key === " " && !e.repeat) pulse();
+});
+
+window.addEventListener("keyup", e => {
+    keys[e.key.toLowerCase()] = false;
+});
+
+document.getElementById("startButton").addEventListener("click", () => {
+    startAudio();
+    startGame();
+});
+
+document.getElementById("restartButton").addEventListener("click", () => {
+    startGame();
+});
