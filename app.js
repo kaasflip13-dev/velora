@@ -286,49 +286,46 @@ function createWorld() {
 
 
 async function startGame() {
-    startButton.disabled = true;
-    startButton.textContent = "CONNECTING...";
+    if (running) return;
 
+    startButton.disabled = true;
+    startButton.textContent = "ENTERING...";
+
+    // Start de wereld DIRECT, zonder op Firebase te wachten
     try {
-        // Firebase maximaal 8 seconden laten proberen
-        const loggedIn = await Promise.race([
-            loginFirebase(),
-            new Promise(resolve =>
-                setTimeout(() => resolve(false), 8000)
-            )
-        ]);
+        const savedWorld = localStorage.getItem("velora_backup");
 
         let loaded = false;
 
-        if (loggedIn) {
-            startButton.textContent = "LOADING WORLD...";
+        if (savedWorld) {
+            try {
+                const data = JSON.parse(savedWorld);
 
-            loaded = await Promise.race([
-                loadGame(),
-                new Promise(resolve =>
-                    setTimeout(() => resolve(false), 8000)
-                )
-            ]);
+                player.x = data.x;
+                player.y = data.y;
+                player.health = data.health;
+                crystals = data.crystals;
+                enemies = data.enemies;
+                trees = data.trees;
+                rocks = data.rocks;
+                crystalObjects = data.crystalObjects;
+                portal = data.portal;
+
+                loaded = true;
+            } catch (error) {
+                console.warn("Lokale save kon niet worden geladen.");
+            }
         }
 
-        // Geen opgeslagen wereld? Maak een nieuwe.
         if (!loaded) {
-            crystals = 0;
             player.x = WORLD_SIZE / 2;
             player.y = WORLD_SIZE / 2;
             player.health = 100;
-
+            crystals = 0;
             createWorld();
-
-            showMessage(
-                loggedIn
-                    ? "Nieuwe wereld ontdekt!"
-                    : "Offline wereld gestart!"
-            );
-        } else {
-            showMessage("Je wereld is geladen!");
         }
 
+        waves = [];
         keys = {};
         waveCooldown = 0;
 
@@ -341,18 +338,28 @@ async function startGame() {
 
         updateCrystalCount();
         updateCamera();
+        render();
 
         startButton.disabled = false;
-        startButton.textContent = "ENTER WORLD";
+        startButton.textContent = "ENTER THE WORLD";
 
         requestAnimationFrame(gameLoop);
 
-    } catch (error) {
-        console.error("Startfout:", error);
+        showMessage(loaded ? "Welcome back!" : "Welcome to VÉLORA!");
 
+        // Firebase op de achtergrond verbinden
+        loginFirebase().then(async connected => {
+            if (connected) {
+                await loadGame();
+                updateCrystalCount();
+                updateCamera();
+            }
+        }).catch(console.error);
+
+    } catch (error) {
+        console.error("Start error:", error);
         startButton.disabled = false;
-        startButton.textContent = "ENTER WORLD";
-        showMessage("Er ging iets mis bij het starten.");
+        startButton.textContent = "ENTER THE WORLD";
     }
 }
 
