@@ -284,59 +284,78 @@ function createWorld() {
 // START GAME
 // ==========================================
 
+
 async function startGame() {
     startButton.disabled = true;
-    startButton.textContent = "LOADING...";
+    startButton.textContent = "CONNECTING...";
 
-    const loggedIn = await loginFirebase();
+    try {
+        // Firebase maximaal 8 seconden laten proberen
+        const loggedIn = await Promise.race([
+            loginFirebase(),
+            new Promise(resolve =>
+                setTimeout(() => resolve(false), 8000)
+            )
+        ]);
 
-    if (!loggedIn) {
+        let loaded = false;
+
+        if (loggedIn) {
+            startButton.textContent = "LOADING WORLD...";
+
+            loaded = await Promise.race([
+                loadGame(),
+                new Promise(resolve =>
+                    setTimeout(() => resolve(false), 8000)
+                )
+            ]);
+        }
+
+        // Geen opgeslagen wereld? Maak een nieuwe.
+        if (!loaded) {
+            crystals = 0;
+            player.x = WORLD_SIZE / 2;
+            player.y = WORLD_SIZE / 2;
+            player.health = 100;
+
+            createWorld();
+
+            showMessage(
+                loggedIn
+                    ? "Nieuwe wereld ontdekt!"
+                    : "Offline wereld gestart!"
+            );
+        } else {
+            showMessage("Je wereld is geladen!");
+        }
+
+        keys = {};
+        waveCooldown = 0;
+
+        menu.style.display = "none";
+        winScreen.style.display = "none";
+        gameUI.style.display = "block";
+
+        running = true;
+        lastTime = performance.now();
+
+        updateCrystalCount();
+        updateCamera();
+
         startButton.disabled = false;
-        startButton.textContent = "START";
-        return;
+        startButton.textContent = "ENTER WORLD";
+
+        requestAnimationFrame(gameLoop);
+
+    } catch (error) {
+        console.error("Startfout:", error);
+
+        startButton.disabled = false;
+        startButton.textContent = "ENTER WORLD";
+        showMessage("Er ging iets mis bij het starten.");
     }
-
-    const loaded = await loadGame();
-
-    if (!loaded) {
-        crystals = 0;
-        player.x = WORLD_SIZE / 2;
-        player.y = WORLD_SIZE / 2;
-        player.health = 100;
-        createWorld();
-        showMessage("Nieuwe wereld ontdekt...");
-    } else {
-        showMessage("Je wereld is geladen!");
-    }
-
-    keys = {};
-    waveCooldown = 0;
-    messageTimer = 2;
-
-    menu.style.display = "none";
-    winScreen.style.display = "none";
-    gameUI.style.display = "block";
-
-    startButton.disabled = false;
-    startButton.textContent = "START";
-
-    running = true;
-    lastTime = performance.now();
-
-    updateCrystalCount();
-    updateCamera();
-
-    requestAnimationFrame(gameLoop);
 }
 
-startButton.addEventListener("click", startGame);
-
-if (restartButton) {
-    restartButton.addEventListener("click", () => {
-        if (running) return;
-        startGame();
-    });
-}
 
 // ==========================================
 // SHOCKWAVE
