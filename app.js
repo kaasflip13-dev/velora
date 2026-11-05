@@ -19,7 +19,7 @@ let running = false;
 let lastTime = 0;
 let elapsed = 0;
 
-const COOLDOWN_TIME = 1.1;
+const COOLDOWN_TIME = 5;
 
 const world = {
     width: 2400,
