@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -14,7 +13,33 @@
             <div class="eyebrow">AN UNKNOWN WORLD AWAITS</div>
             <h1>VÉLORA</h1>
             <p>THE WORLD THAT LISTENS</p>
-            <button id="startButton">ENTER THE WORLD</button>
+
+            <div id="accountPanel">
+                <div id="loginArea">
+                    <div class="account-title">PLAYER ACCOUNT</div>
+                    <div class="account-subtitle">Sign in to save your progress</div>
+                    <button id="googleButton" class="google-button">
+                        <span class="google-icon">G</span>
+                        SIGN IN WITH GOOGLE
+                    </button>
+                    <div id="loginStatus">Connect your Google account</div>
+                </div>
+
+                <div id="loggedInArea" style="display:none">
+                    <div class="account-title">SIGNED IN</div>
+                    <div id="playerName"></div>
+                    <div id="playerEmail"></div>
+                    <button id="logoutButton" class="logout-button">SIGN OUT</button>
+                </div>
+            </div>
+
+            <button id="startButton" disabled>ENTER THE WORLD</button>
+
+            <div id="playersPanel">
+                <div class="players-heading">PLAYERS IN VÉLORA</div>
+                <div id="playersList">Loading players...</div>
+            </div>
+
             <div class="menu-bottom">
                 A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM
             </div>
