@@ -1,53 +1,77 @@
 
-// ==================================================
+// ==========================================
 // VÉLORA — THE WORLD THAT LISTENS
-// COMPLETE GAME ENGINE + SHOCK WAVE COOLDOWN
-// ==================================================
+// Complete app.js
+// ==========================================
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 const menu = document.getElementById("menu");
+const startButton = document.getElementById("startButton");
 const gameUI = document.getElementById("gameUI");
-const winScreen = document.getElementById("winScreen");
-
+const crystalCount = document.getElementById("crystalCount");
 const cooldownBar = document.getElementById("cooldownBar");
 const cooldownText = document.getElementById("cooldownText");
+const hint = document.getElementById("hint");
+const message = document.getElementById("message");
+const winScreen = document.getElementById("winScreen");
+const restartButton = document.getElementById("restartButton");
 
-let W, H;
+const NIGHT_DURATION = 3; // Donkere tijd: 3 seconden
+const DAY_DURATION = 25;
+const WAVE_COOLDOWN = 5;
+const WORLD_SIZE = 2200;
+
 let running = false;
 let lastTime = 0;
-let elapsed = 0;
+let crystals = 0;
+let waveCooldown = 0;
+let cycleTime = 0;
+let isNight = false;
+let keys = {};
 
-const COOLDOWN_TIME = 5;
+let camera = { x: 0, y: 0 };
 
-const world = {
-    width: 2400,
-    height: 1800
+const player = {
+    x: WORLD_SIZE / 2,
+    y: WORLD_SIZE / 2,
+    radius: 15,
+    speed: 190,
+    health: 100
 };
 
-let player;
-let camera;
-let pulses = [];
-let particles = [];
-let crystals = [];
 let enemies = [];
-let plants = [];
-let walls = [];
-let collected = 0;
-let messageTimer = 0;
-let audioContext = null;
+let crystalObjects = [];
+let trees = [];
+let rocks = [];
+let waves = [];
+let portal = { x: 0, y: 0 };
 
-const keys = {};
-
-function resize() {
-    W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight;
+// Canvas
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 }
 
-window.addEventListener("resize", resize);
-resize();
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
 
+// Besturing
+window.addEventListener("keydown", e => {
+    keys[e.key.toLowerCase()] = true;
+
+    if (e.code === "Space") {
+        e.preventDefault();
+        createWave();
+    }
+});
+
+window.addEventListener("keyup", e => {
+    keys[e.key.toLowerCase()] = false;
+});
+
+// Willekeurige wereld
 function random(min, max) {
     return Math.random() * (max - min) + min;
 }
@@ -56,778 +80,572 @@ function distance(a, b) {
     return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-function showMessage(text) {
-    document.getElementById("message").textContent = text;
-    messageTimer = 2.5;
+function createWorld() {
+    trees = [];
+    rocks = [];
+    enemies = [];
+    crystalObjects = [];
+    waves = [];
+
+    for (let i = 0; i < 130; i++) {
+        trees.push({
+            x: random(80, WORLD_SIZE - 80),
+            y: random(80, WORLD_SIZE - 80),
+            size: random(13, 25)
+        });
+    }
+
+    for (let i = 0; i < 100; i++) {
+        rocks.push({
+            x: random(80, WORLD_SIZE - 80),
+            y: random(80, WORLD_SIZE - 80),
+            size: random(8, 18)
+        });
+    }
+
+    // Vijf herinneringskristallen
+    for (let i = 0; i < 5; i++) {
+        let x, y;
+
+        do {
+            x = random(150, WORLD_SIZE - 150);
+            y = random(150, WORLD_SIZE - 150);
+        } while (Math.hypot(x - player.x, y - player.y) < 300);
+
+        crystalObjects.push({
+            x,
+            y,
+            collected: false,
+            pulse: random(0, 6)
+        });
+    }
+
+    // Wezens die op geluid afkomen
+    for (let i = 0; i < 7; i++) {
+        enemies.push({
+            x: random(100, WORLD_SIZE - 100),
+            y: random(100, WORLD_SIZE - 100),
+            speed: random(35, 55),
+            alert: false,
+            angle: 0
+        });
+    }
+
+    portal = {
+        x: WORLD_SIZE - 180,
+        y: WORLD_SIZE - 180
+    };
 }
-
-// ==================================================
-// AUDIO
-// ==================================================
-
-function startAudio() {
-    try {
-        if (!audioContext) {
-            audioContext = new (
-                window.AudioContext ||
-                window.webkitAudioContext
-            )();
-        }
-
-        if (audioContext.state === "suspended") {
-            audioContext.resume();
-        }
-    } catch (e) {}
-}
-
-function sound(frequency, duration, volume = 0.04) {
-    if (!audioContext) return;
-
-    try {
-        const osc = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-
-        osc.type = "sine";
-        osc.frequency.value = frequency;
-
-        gain.gain.setValueAtTime(
-            volume,
-            audioContext.currentTime
-        );
-
-        gain.gain.exponentialRampToValueAtTime(
-            0.001,
-            audioContext.currentTime + duration
-        );
-
-        osc.connect(gain);
-        gain.connect(audioContext.destination);
-
-        osc.start();
-        osc.stop(audioContext.currentTime + duration);
-    } catch (e) {}
-}
-
-// ==================================================
-// START GAME
-// ==================================================
 
 function startGame() {
+    crystals = 0;
+    waveCooldown = 0;
+    cycleTime = 0;
+    isNight = false;
+
+    player.x = WORLD_SIZE / 2;
+    player.y = WORLD_SIZE / 2;
+    player.health = 100;
+
+    createWorld();
+
     menu.style.display = "none";
     winScreen.style.display = "none";
     gameUI.style.display = "block";
 
-    player = {
-        x: 200,
-        y: 200,
-        radius: 13,
-        speed: 210,
-        direction: 0,
-        pulseCooldown: 0,
-        reveal: 0
-    };
-
-    camera = { x: 0, y: 0 };
-
-    pulses = [];
-    particles = [];
-    collected = 0;
-    elapsed = 0;
-    messageTimer = 0;
-
-    document.getElementById("crystalCount").textContent = "0";
-    document.getElementById("message").textContent = "";
-
-    updateCooldownUI();
-
-    crystals = [
-        { x: 470, y: 310, found: false },
-        { x: 900, y: 650, found: false },
-        { x: 1300, y: 300, found: false },
-        { x: 1750, y: 1100, found: false },
-        { x: 2150, y: 1500, found: false }
-    ];
-
-    enemies = [
-        { x: 650, y: 430, speed: 65, angle: 0, alert: 0 },
-        { x: 1100, y: 900, speed: 55, angle: 2, alert: 0 },
-        { x: 1600, y: 550, speed: 75, angle: 4, alert: 0 },
-        { x: 1950, y: 1300, speed: 60, angle: 1, alert: 0 }
-    ];
-
-    walls = [];
-    plants = [];
-
-    // BUILDINGS AND RUINS
-    for (let i = 0; i < 48; i++) {
-        const x = random(100, world.width - 100);
-        const y = random(100, world.height - 100);
-
-        if (Math.hypot(x - 200, y - 200) > 180) {
-            walls.push({
-                x,
-                y,
-                w: random(35, 95),
-                h: random(35, 95)
-            });
-        }
-    }
-
-    // GLOWING PLANTS
-    for (let i = 0; i < 180; i++) {
-        plants.push({
-            x: random(0, world.width),
-            y: random(0, world.height),
-            size: random(5, 15),
-            phase: random(0, 6.28)
-        });
-    }
-
-    // RESET MOVEMENT KEYS
-    for (const key in keys) {
-        keys[key] = false;
-    }
-
     running = true;
     lastTime = performance.now();
 
-    requestAnimationFrame(loop);
+    updateCrystalCount();
+    requestAnimationFrame(gameLoop);
 }
 
-// ==================================================
-// SHOCK WAVE
-// ==================================================
+startButton.addEventListener("click", startGame);
 
-function pulse() {
-    if (!running) return;
+if (restartButton) {
+    restartButton.addEventListener("click", startGame);
+}
 
-    // COOLDOWN CHECK
-    if (player.pulseCooldown > 0) return;
+// Geluidsgolf
+function createWave() {
+    if (!running || waveCooldown > 0) return;
 
-    player.pulseCooldown = COOLDOWN_TIME;
-
-    // CREATE SHOCK WAVE
-    pulses.push({
+    waves.push({
         x: player.x,
         y: player.y,
         radius: 5,
-        maxRadius: 410,
+        maxRadius: 420,
         alpha: 1
     });
 
-    // REVEAL THE WORLD
-    player.reveal = 3;
+    waveCooldown = WAVE_COOLDOWN;
 
-    sound(180, 0.7, 0.07);
-
-    showMessage("THE WORLD IS LISTENING");
-
-    // MONSTERS HEAR THE SOUND
+    // Vijanden horen de golf
     enemies.forEach(enemy => {
-        enemy.alert = 3.5;
-
-        enemy.target = {
-            x: player.x,
-            y: player.y
-        };
-    });
-
-    // PARTICLE EFFECT
-    for (let i = 0; i < 25; i++) {
-        particles.push({
-            x: player.x,
-            y: player.y,
-            vx: random(-120, 120),
-            vy: random(-120, 120),
-            life: random(0.3, 0.9)
-        });
-    }
-
-    updateCooldownUI();
-}
-
-// ==================================================
-// COOLDOWN UI
-// ==================================================
-
-function updateCooldownUI() {
-    if (!player) return;
-
-    const progress = Math.max(
-        0,
-        Math.min(
-            1,
-            1 - player.pulseCooldown / COOLDOWN_TIME
-        )
-    );
-
-    cooldownBar.style.width = (progress * 100) + "%";
-
-    if (player.pulseCooldown <= 0) {
-        cooldownText.textContent = "READY";
-        cooldownText.style.color = "#64e9ff";
-    } else {
-        cooldownText.textContent =
-            player.pulseCooldown.toFixed(1) + "s";
-
-        cooldownText.style.color = "#ffae72";
-    }
-}
-
-// ==================================================
-// COLLISIONS
-// ==================================================
-
-function collides(x, y, radius) {
-    if (
-        x < radius ||
-        y < radius ||
-        x > world.width - radius ||
-        y > world.height - radius
-    ) {
-        return true;
-    }
-
-    for (const wall of walls) {
-        const nearestX = Math.max(
-            wall.x,
-            Math.min(x, wall.x + wall.w)
-        );
-
-        const nearestY = Math.max(
-            wall.y,
-            Math.min(y, wall.y + wall.h)
-        );
-
-        if (
-            Math.hypot(
-                x - nearestX,
-                y - nearestY
-            ) < radius
-        ) {
-            return true;
+        if (distance(player, enemy) < 500) {
+            enemy.alert = true;
         }
-    }
-
-    return false;
+    });
 }
 
-function movePlayer(dx, dy) {
-    if (!collides(
-        player.x + dx,
-        player.y,
-        player.radius
-    )) {
-        player.x += dx;
-    }
-
-    if (!collides(
-        player.x,
-        player.y + dy,
-        player.radius
-    )) {
-        player.y += dy;
+function updateCrystalCount() {
+    if (crystalCount) {
+        crystalCount.textContent = `${crystals}/5`;
     }
 }
 
-// ==================================================
-// UPDATE GAME
-// ==================================================
-
-function update(dt) {
-    elapsed += dt;
-
-    // PLAYER MOVEMENT
-    const sprint = keys["Shift"] ? 1.5 : 1;
-
+// Speler bewegen
+function updatePlayer(dt) {
     let dx = 0;
     let dy = 0;
 
-    if (keys["w"] || keys["ArrowUp"]) dy--;
-    if (keys["s"] || keys["ArrowDown"]) dy++;
-    if (keys["a"] || keys["ArrowLeft"]) dx--;
-    if (keys["d"] || keys["ArrowRight"]) dx++;
+    if (keys["w"] || keys["arrowup"]) dy--;
+    if (keys["s"] || keys["arrowdown"]) dy++;
+    if (keys["a"] || keys["arrowleft"]) dx--;
+    if (keys["d"] || keys["arrowright"]) dx++;
 
-    if (dx || dy) {
-        const len = Math.hypot(dx, dy);
+    if (dx !== 0 || dy !== 0) {
+        const length = Math.hypot(dx, dy);
+        dx /= length;
+        dy /= length;
 
-        dx /= len;
-        dy /= len;
-
-        player.direction = Math.atan2(dy, dx);
-
-        movePlayer(
-            dx * player.speed * sprint * dt,
-            dy * player.speed * sprint * dt
-        );
+        const sprint = keys["shift"] ? 1.55 : 1;
+        player.x += dx * player.speed * sprint * dt;
+        player.y += dy * player.speed * sprint * dt;
     }
 
-    // COOLDOWN
-    player.pulseCooldown = Math.max(
-        0,
-        player.pulseCooldown - dt
-    );
+    player.x = Math.max(20, Math.min(WORLD_SIZE - 20, player.x));
+    player.y = Math.max(20, Math.min(WORLD_SIZE - 20, player.y));
+}
 
-    player.reveal = Math.max(
-        0,
-        player.reveal - dt
-    );
-
-    updateCooldownUI();
-
-    // SHOCK WAVES
-    pulses.forEach(p => {
-        p.radius += 700 * dt;
-
-        p.alpha = Math.max(
-            0,
-            1 - p.radius / p.maxRadius
-        );
-    });
-
-    pulses = pulses.filter(
-        p => p.radius < p.maxRadius
-    );
-
-    // PARTICLES
-    particles.forEach(p => {
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.life -= dt;
-    });
-
-    particles = particles.filter(
-        p => p.life > 0
-    );
-
-    // MONSTERS
+// Vijanden
+function updateEnemies(dt) {
     enemies.forEach(enemy => {
-        enemy.alert = Math.max(
-            0,
-            enemy.alert - dt
-        );
+        const d = distance(player, enemy);
 
-        let tx = enemy.x +
-            Math.cos(elapsed + enemy.angle) * 30;
-
-        let ty = enemy.y +
-            Math.sin(elapsed * 0.7 + enemy.angle) * 30;
-
-        if (enemy.alert > 0 && enemy.target) {
-            tx = enemy.target.x;
-            ty = enemy.target.y;
+        if (d < 170) {
+            enemy.alert = true;
         }
 
-        const angle = Math.atan2(
-            ty - enemy.y,
-            tx - enemy.x
-        );
+        if (enemy.alert) {
+            const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
 
-        const speed = enemy.alert > 0
-            ? enemy.speed * 1.7
-            : enemy.speed * 0.35;
+            enemy.angle = angle;
+            enemy.x += Math.cos(angle) * enemy.speed * dt;
+            enemy.y += Math.sin(angle) * enemy.speed * dt;
 
-        const nx = enemy.x +
-            Math.cos(angle) * speed * dt;
+            if (d < 28) {
+                player.health -= 12 * dt;
 
-        const ny = enemy.y +
-            Math.sin(angle) * speed * dt;
-
-        if (!collides(nx, ny, 15)) {
-            enemy.x = nx;
-            enemy.y = ny;
-        }
-
-        // PLAYER AND MONSTER INTERACTION
-        if (distance(enemy, player) < 25) {
-            enemy.alert = 0;
-
-            const push = Math.atan2(
-                enemy.y - player.y,
-                enemy.x - player.x
-            );
-
-            enemy.x += Math.cos(push) * 90 * dt;
-            enemy.y += Math.sin(push) * 90 * dt;
-        }
-    });
-
-    // CRYSTALS
-    crystals.forEach(crystal => {
-        if (
-            !crystal.found &&
-            distance(player, crystal) < 30
-        ) {
-            crystal.found = true;
-            collected++;
-
-            document.getElementById(
-                "crystalCount"
-            ).textContent = collected;
-
-            sound(500 + collected * 100, 0.5, 0.08);
-
-            showMessage(
-                "MEMORY RECOVERED " + collected + " / 5"
-            );
-
-            for (let i = 0; i < 18; i++) {
-                particles.push({
-                    x: crystal.x,
-                    y: crystal.y,
-                    vx: random(-90, 90),
-                    vy: random(-90, 90),
-                    life: 1
-                });
+                if (player.health <= 0) {
+                    player.health = 0;
+                    gameOver();
+                }
             }
         }
     });
+}
 
-    // EXIT
-    const exit = {
-        x: world.width - 120,
-        y: world.height - 120
-    };
+// Kristallen verzamelen
+function updateCrystals() {
+    crystalObjects.forEach(crystal => {
+        if (!crystal.collected &&
+            distance(player, crystal) < 27) {
 
-    if (
-        collected >= 5 &&
-        distance(player, exit) < 65
-    ) {
-        winGame();
-        return;
+            crystal.collected = true;
+            crystals++;
+            updateCrystalCount();
+
+            showMessage("Herinnering gevonden!");
+        }
+    });
+}
+
+// Geluidsgolven
+function updateWaves(dt) {
+    waves.forEach(wave => {
+        wave.radius += 600 * dt;
+        wave.alpha -= 0.65 * dt;
+    });
+
+    waves = waves.filter(wave => wave.alpha > 0);
+
+    waveCooldown = Math.max(0, waveCooldown - dt);
+
+    if (cooldownBar) {
+        cooldownBar.style.width =
+            `${100 - (waveCooldown / WAVE_COOLDOWN * 100)}%`;
     }
 
-    // CAMERA
-    camera.x = Math.max(
-        0,
-        Math.min(
-            world.width - W,
-            player.x - W / 2
-        )
-    );
+    if (cooldownText) {
+        cooldownText.textContent = waveCooldown > 0
+            ? `${waveCooldown.toFixed(1)}s`
+            : "READY";
+    }
+}
 
-    camera.y = Math.max(
-        0,
-        Math.min(
-            world.height - H,
-            player.y - H / 2
-        )
-    );
+// Dag en nacht
+function updateCycle(dt) {
+    cycleTime += dt;
 
-    // MESSAGE TIMER
+    if (!isNight && cycleTime >= DAY_DURATION) {
+        isNight = true;
+        cycleTime = 0;
+        showMessage("De wereld wordt donker...");
+    }
+
+    if (isNight && cycleTime >= NIGHT_DURATION) {
+        isNight = false;
+        cycleTime = 0;
+        showMessage("Het licht is terug.");
+    }
+}
+
+// Berichten
+let messageTimer = 0;
+
+function showMessage(text) {
+    if (!message) return;
+
+    message.textContent = text;
+    message.style.display = "block";
+    messageTimer = 2;
+}
+
+function updateMessage(dt) {
     if (messageTimer > 0) {
         messageTimer -= dt;
 
-        if (messageTimer <= 0) {
-            document.getElementById(
-                "message"
-            ).textContent = "";
+        if (messageTimer <= 0 && message) {
+            message.style.display = "none";
         }
     }
 }
 
-// ==================================================
-// DRAW WORLD
-// ==================================================
+// Camera
+function updateCamera() {
+    camera.x = player.x - canvas.width / 2;
+    camera.y = player.y - canvas.height / 2;
 
+    camera.x = Math.max(0, Math.min(WORLD_SIZE - canvas.width, camera.x));
+    camera.y = Math.max(0, Math.min(WORLD_SIZE - canvas.height, camera.y));
+}
+
+// Tekenen
 function drawWorld() {
-    ctx.fillStyle = "#080b19";
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = isNight ? "#101b24" : "#334b3b";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // BACKGROUND STARS
-    for (let i = 0; i < 180; i++) {
-        const x = (i * 173 % world.width) - camera.x;
-        const y = (i * 293 % world.height) - camera.y;
+    // Grondpatroon
+    ctx.strokeStyle = isNight
+        ? "rgba(100,150,160,0.07)"
+        : "rgba(180,210,170,0.07)";
 
-        if (
-            x >= 0 && x <= W &&
-            y >= 0 && y <= H
-        ) {
-            ctx.fillStyle = "rgba(120,170,255,0.12)";
-            ctx.fillRect(x, y, 2, 2);
-        }
-    }
-
-    ctx.save();
-    ctx.translate(-camera.x, -camera.y);
-
-    // GROUND GRID
-    ctx.strokeStyle = "rgba(80,120,180,0.07)";
     ctx.lineWidth = 1;
 
-    for (let x = 0; x < world.width; x += 100) {
+    for (let x = -camera.x % 80; x < canvas.width; x += 80) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
-        ctx.lineTo(x, world.height);
+        ctx.lineTo(x, canvas.height);
         ctx.stroke();
     }
 
-    for (let y = 0; y < world.height; y += 100) {
+    for (let y = -camera.y % 80; y < canvas.height; y += 80) {
         ctx.beginPath();
         ctx.moveTo(0, y);
-        ctx.lineTo(world.width, y);
+        ctx.lineTo(canvas.width, y);
         ctx.stroke();
     }
 
-    // BUILDINGS
-    if (player.reveal > 0) {
-        walls.forEach(w => {
-            ctx.fillStyle = "#182743";
-            ctx.fillRect(w.x, w.y, w.w, w.h);
+    // Wereldgrens
+    ctx.strokeStyle = "#829b85";
+    ctx.lineWidth = 5;
+    ctx.strokeRect(
+        -camera.x,
+        -camera.y,
+        WORLD_SIZE,
+        WORLD_SIZE
+    );
+}
 
-            ctx.strokeStyle = "#54c9ee";
-            ctx.lineWidth = 2;
-            ctx.strokeRect(w.x, w.y, w.w, w.h);
-        });
-    }
+function drawTrees() {
+    trees.forEach(tree => {
+        const x = tree.x - camera.x;
+        const y = tree.y - camera.y;
 
-    // GLOWING PLANTS
-    plants.forEach(p => {
-        ctx.globalAlpha = player.reveal > 0 ? 1 : 0.12;
+        if (x < -50 || y < -50 ||
+            x > canvas.width + 50 ||
+            y > canvas.height + 50) return;
 
-        ctx.fillStyle = "#4cdbba";
-        ctx.shadowBlur = player.reveal > 0 ? 15 : 0;
-        ctx.shadowColor = "#39ffd0";
+        ctx.fillStyle = "#493a2d";
+        ctx.fillRect(x - 5, y, 10, tree.size);
 
+        ctx.fillStyle = isNight ? "#18382f" : "#244f36";
         ctx.beginPath();
-        ctx.arc(
-            p.x,
-            p.y,
-            p.size,
-            0,
-            Math.PI * 2
-        );
+        ctx.arc(x, y, tree.size, 0, Math.PI * 2);
+        ctx.fill();
 
+        ctx.fillStyle = isNight ? "#245044" : "#376a43";
+        ctx.beginPath();
+        ctx.arc(x - 5, y - 5, tree.size * 0.65, 0, Math.PI * 2);
         ctx.fill();
     });
+}
 
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+function drawRocks() {
+    rocks.forEach(rock => {
+        const x = rock.x - camera.x;
+        const y = rock.y - camera.y;
 
-    // CRYSTALS
-    crystals.forEach(c => {
-        if (c.found) return;
+        if (x < -30 || y < -30 ||
+            x > canvas.width + 30 ||
+            y > canvas.height + 30) return;
+
+        ctx.fillStyle = "#697477";
+        ctx.beginPath();
+        ctx.ellipse(x, y, rock.size, rock.size * 0.7, 0, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+function drawCrystals() {
+    crystalObjects.forEach(crystal => {
+        if (crystal.collected) return;
+
+        const x = crystal.x - camera.x;
+        const y = crystal.y - camera.y;
+
+        const visible = waves.some(wave =>
+            Math.hypot(crystal.x - wave.x, crystal.y - wave.y) < wave.radius
+        );
+
+        if (!visible && isNight) return;
+
+        crystal.pulse += 0.05;
 
         ctx.save();
-        ctx.translate(c.x, c.y);
-        ctx.rotate(elapsed * 0.7);
+        ctx.translate(x, y);
+        ctx.rotate(Math.sin(crystal.pulse) * 0.15);
 
-        ctx.globalAlpha = player.reveal > 0 ? 1 : 0.12;
-        ctx.shadowBlur = player.reveal > 0 ? 30 : 0;
-        ctx.shadowColor = "#57dfff";
-        ctx.fillStyle = "#81edff";
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = "#6eeaff";
+        ctx.fillStyle = "#76eaff";
 
         ctx.beginPath();
         ctx.moveTo(0, -17);
-        ctx.lineTo(12, 0);
-        ctx.lineTo(0, 17);
-        ctx.lineTo(-12, 0);
+        ctx.lineTo(12, -4);
+        ctx.lineTo(7, 15);
+        ctx.lineTo(-7, 15);
+        ctx.lineTo(-12, -4);
         ctx.closePath();
         ctx.fill();
 
         ctx.restore();
     });
+}
 
-    // EXIT PORTAL
-    const exitX = world.width - 120;
-    const exitY = world.height - 120;
+function drawEnemies() {
+    enemies.forEach(enemy => {
+        const x = enemy.x - camera.x;
+        const y = enemy.y - camera.y;
 
-    ctx.globalAlpha = collected >= 5 ? 1 : 0.15;
-    ctx.shadowBlur = collected >= 5 ? 35 : 0;
-    ctx.shadowColor = "#8e74ff";
-    ctx.strokeStyle = "#9b8aff";
-    ctx.lineWidth = 4;
+        if (x < -50 || y < -50 ||
+            x > canvas.width + 50 ||
+            y > canvas.height + 50) return;
+
+        if (isNight && !enemy.alert) return;
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(enemy.angle);
+
+        // Alien body
+        ctx.fillStyle = "#a4c76d";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 17, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Head
+        ctx.fillStyle = "#b8df82";
+        ctx.beginPath();
+        ctx.ellipse(10, -3, 10, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = "#ff526b";
+        ctx.beginPath();
+        ctx.arc(14, -6, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    });
+}
+
+function drawPlayer() {
+    const x = player.x - camera.x;
+    const y = player.y - camera.y;
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Schaduw
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(0, 12, 15, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Speler
+    ctx.fillStyle = "#e6e3d6";
+    ctx.beginPath();
+    ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#65d9df";
+    ctx.beginPath();
+    ctx.arc(0, -3, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+function drawPortal() {
+    const x = portal.x - camera.x;
+    const y = portal.y - camera.y;
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    ctx.shadowBlur = 25;
+    ctx.shadowColor = "#a56bff";
+    ctx.strokeStyle = "#c49aff";
+    ctx.lineWidth = 6;
 
     ctx.beginPath();
-    ctx.arc(
-        exitX,
-        exitY,
-        35 + Math.sin(elapsed * 2) * 5,
-        0,
-        Math.PI * 2
-    );
-
+    ctx.ellipse(0, 0, 25, 40, 0, 0, Math.PI * 2);
     ctx.stroke();
 
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(140,80,255,0.2)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 19, 34, 0, 0, Math.PI * 2);
+    ctx.fill();
 
-    // MONSTERS
-    enemies.forEach(e => {
-        ctx.globalAlpha = player.reveal > 0 ? 1 : 0.12;
-        ctx.shadowBlur = player.reveal > 0 ? 20 : 0;
-        ctx.shadowColor = "#ff4b91";
-        ctx.fillStyle = "#d73d79";
+    ctx.restore();
+}
 
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, 15, 0, Math.PI * 2);
-        ctx.fill();
-
-        // EYES
-        ctx.fillStyle = "#ffffff";
-
-        ctx.beginPath();
-        ctx.arc(e.x - 5, e.y - 3, 3, 0, Math.PI * 2);
-        ctx.arc(e.x + 5, e.y - 3, 3, 0, Math.PI * 2);
-        ctx.fill();
-    });
-
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
-
-    // SHOCK WAVE RINGS
-    pulses.forEach(p => {
-        ctx.globalAlpha = p.alpha;
-        ctx.strokeStyle = "#5be5ff";
-        ctx.lineWidth = 4;
-        ctx.shadowBlur = 25;
-        ctx.shadowColor = "#44dfff";
-
+function drawWaves() {
+    waves.forEach(wave => {
         ctx.beginPath();
         ctx.arc(
-            p.x,
-            p.y,
-            p.radius,
+            wave.x - camera.x,
+            wave.y - camera.y,
+            wave.radius,
             0,
             Math.PI * 2
         );
 
+        ctx.strokeStyle = `rgba(100,230,255,${wave.alpha})`;
+        ctx.lineWidth = 3;
         ctx.stroke();
     });
+}
 
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+function drawNightEffect() {
+    if (!isNight) return;
 
-    // PARTICLES
-    particles.forEach(p => {
-        ctx.globalAlpha = Math.min(1, p.life);
-        ctx.fillStyle = "#83eaff";
+    ctx.fillStyle = "rgba(3, 8, 20, 0.72)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-        ctx.fill();
-    });
+    // Licht rond de speler
+    const x = player.x - camera.x;
+    const y = player.y - camera.y;
 
-    ctx.globalAlpha = 1;
+    const light = ctx.createRadialGradient(x, y, 20, x, y, 190);
+    light.addColorStop(0, "rgba(255,255,255,0.12)");
+    light.addColorStop(1, "rgba(0,0,0,0)");
 
-    // PLAYER
-    ctx.shadowBlur = 25;
-    ctx.shadowColor = "#62eaff";
-    ctx.fillStyle = "#e1faff";
+    ctx.fillStyle = light;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
 
-    ctx.beginPath();
-    ctx.arc(
-        player.x,
-        player.y,
-        player.radius,
-        0,
-        Math.PI * 2
-    );
+function drawHUD() {
+    if (hint) {
+        hint.textContent = "WASD: bewegen  |  SHIFT: sprinten  |  SPACE: geluidsgolf";
+    }
 
-    ctx.fill();
+    // Gezondheid
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(20, 20, 160, 12);
 
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = "#69dfff";
-    ctx.lineWidth = 3;
+    ctx.fillStyle = "#71d99a";
+    ctx.fillRect(20, 20, 160 * (player.health / 100), 12);
+}
 
-    ctx.beginPath();
-    ctx.arc(
-        player.x,
-        player.y,
-        21,
-        0,
-        Math.PI * 2
-    );
+// Game over
+function gameOver() {
+    running = false;
 
-    ctx.stroke();
+    if (message) {
+        message.textContent = "Je bent gevonden...";
+        message.style.display = "block";
+    }
 
-    ctx.restore();
+    setTimeout(() => {
+        if (!running) {
+            menu.style.display = "flex";
+            gameUI.style.display = "none";
+        }
+    }, 1800);
+}
 
-    // DARK VISION MASK
-    if (player.reveal <= 0) {
-        const px = player.x - camera.x;
-        const py = player.y - camera.y;
-
-        const gradient = ctx.createRadialGradient(
-            px, py, 10,
-            px, py, 125
-        );
-
-        gradient.addColorStop(
-            0,
-            "rgba(3,5,15,0)"
-        );
-
-        gradient.addColorStop(
-            1,
-            "rgba(3,5,15,0.94)"
-        );
-
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, W, H);
+// Winnen
+function checkWin() {
+    if (crystals >= 5 && distance(player, portal) < 45) {
+        running = false;
+        winScreen.style.display = "flex";
+        gameUI.style.display = "none";
     }
 }
 
-// ==================================================
-// GAME LOOP
-// ==================================================
+// Update
+function update(dt) {
+    updatePlayer(dt);
+    updateEnemies(dt);
+    updateCrystals();
+    updateWaves(dt);
+    updateCycle(dt);
+    updateMessage(dt);
+    updateCamera();
+    checkWin();
+}
 
-function loop(time) {
+// Tekenen
+function render() {
+    drawWorld();
+    drawTrees();
+    drawRocks();
+    drawPortal();
+    drawCrystals();
+    drawEnemies();
+    drawWaves();
+    drawPlayer();
+    drawNightEffect();
+    drawHUD();
+}
+
+// Game loop
+function gameLoop(time) {
     if (!running) return;
 
-    const dt = Math.min(
-        (time - lastTime) / 1000,
-        0.04
-    );
-
+    const dt = Math.min((time - lastTime) / 1000, 0.04);
     lastTime = time;
 
     update(dt);
-    drawWorld();
+    render();
 
-    requestAnimationFrame(loop);
+    requestAnimationFrame(gameLoop);
 }
 
-// ==================================================
-// KEYBOARD
-// ==================================================
-
-window.addEventListener("keydown", e => {
-    const key = e.key.toLowerCase();
-
-    if (
-        ["arrowup", "arrowdown", "arrowleft",
-         "arrowright", " "].includes(key)
-    ) {
-        e.preventDefault();
-    }
-
-    keys[key] = true;
-
-    if (key === " " && !e.repeat) {
-        pulse();
-    }
-});
-
-window.addEventListener("keyup", e => {
-    keys[e.key.toLowerCase()] = false;
-});
-
-// ==================================================
-// BUTTONS
-// ==================================================
-
-document.getElementById("startButton")
-    .addEventListener("click", () => {
-        startAudio();
-        startGame();
-    });
-
-document.getElementById("restartButton")
-    .addEventListener("click", () => {
-        startGame();
-    });
-
-// ==================================================
-// END
-// ==================================================
+// Startscherm
+menu.style.display = "flex";
+gameUI.style.display = "none";
+winScreen.style.display = "none";
