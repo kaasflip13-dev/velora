@@ -4,7 +4,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebas
 import {
     getAuth,
     GoogleAuthProvider,
-    signInWithPopup,
+    signInWithRedirect,
+    getRedirectResult,
     signOut,
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
@@ -36,6 +37,10 @@ const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
 const database = getDatabase(firebaseApp);
 const provider = new GoogleAuthProvider();
+
+provider.setCustomParameters({
+    prompt: "select_account"
+});
 
 let currentUser = null;
 let playerUID = null;
@@ -73,40 +78,47 @@ const winScreen = document.getElementById("winScreen");
 const restartButton = document.getElementById("restartButton");
 
 // ==========================================
+// GOOGLE LOGIN RESULT
+// ==========================================
+
+getRedirectResult(auth)
+    .then(result => {
+        if (result && result.user) {
+            console.log("Google login successful:", result.user.uid);
+        }
+    })
+    .catch(error => {
+        console.error("Google redirect error:", error);
+
+        if (loginStatus) {
+            loginStatus.textContent = error.message;
+        }
+    });
+
+// ==========================================
 // GOOGLE LOGIN
 // ==========================================
 
 async function loginWithGoogle() {
-    if (googleButton) {
-        googleButton.disabled = true;
-        googleButton.textContent = "CONNECTING...";
-    }
-
-    if (loginStatus) {
-        loginStatus.textContent = "Connecting to Google...";
-    }
-
     try {
-        const result = await signInWithPopup(auth, provider);
-
-        currentUser = result.user;
-        playerUID = result.user.uid;
+        if (googleButton) {
+            googleButton.disabled = true;
+            googleButton.textContent = "CONNECTING...";
+        }
 
         if (loginStatus) {
-            loginStatus.textContent = "Successfully signed in!";
+            loginStatus.textContent = "Opening Google login...";
         }
+
+        await signInWithRedirect(auth, provider);
 
     } catch (error) {
         console.error("Google login error:", error);
 
         if (loginStatus) {
-            loginStatus.textContent =
-                error.code === "auth/unauthorized-domain"
-                    ? "Add this website domain in Firebase Authorized domains."
-                    : error.message;
+            loginStatus.textContent = error.message;
         }
 
-    } finally {
         if (googleButton) {
             googleButton.disabled = false;
             googleButton.textContent = "SIGN IN WITH GOOGLE";
@@ -142,20 +154,14 @@ if (logoutButton) {
 
 onAuthStateChanged(auth, async user => {
 
-    // Oude anonieme login opruimen
-    if (user && user.isAnonymous) {
-        try {
-            await signOut(auth);
-        } catch (error) {
-            console.error("Could not clear old anonymous login:", error);
-        }
-        return;
-    }
+    // Een oude anonieme gebruiker telt niet als Google-login.
+    // We loggen die hier NIET uit, zodat een lopende redirect
+    // niet per ongeluk wordt onderbroken.
 
-    currentUser = user;
-    playerUID = user ? user.uid : null;
+    if (user && !user.isAnonymous) {
+        currentUser = user;
+        playerUID = user.uid;
 
-    if (user) {
         if (loginArea) loginArea.style.display = "none";
         if (loggedInArea) loggedInArea.style.display = "block";
 
@@ -176,6 +182,9 @@ onAuthStateChanged(auth, async user => {
         listenToPlayers();
 
     } else {
+        currentUser = null;
+        playerUID = null;
+
         if (loginArea) loginArea.style.display = "block";
         if (loggedInArea) loggedInArea.style.display = "none";
 
@@ -206,7 +215,7 @@ async function savePublicProfile(user) {
             lastSeen: Date.now()
         });
     } catch (error) {
-        console.error("Could not save public profile:", error);
+        console.error("Public profile error:", error);
     }
 }
 
@@ -219,9 +228,7 @@ function listenToPlayers() {
 
     playersListenerStarted = true;
 
-    const playersRef = ref(database, "publicPlayers");
-
-    onValue(playersRef, snapshot => {
+    onValue(ref(database, "publicPlayers"), snapshot => {
         if (!playersList) return;
 
         playersList.innerHTML = "";
@@ -251,12 +258,7 @@ function listenToPlayers() {
 
             const status = document.createElement("span");
             status.className = "player-status";
-
-            if (player.uid === playerUID) {
-                status.textContent = "YOU";
-            } else {
-                status.textContent = "PLAYER";
-            }
+            status.textContent = player.uid === playerUID ? "YOU" : "PLAYER";
 
             item.appendChild(name);
             item.appendChild(status);
@@ -265,10 +267,7 @@ function listenToPlayers() {
 
     }, error => {
         console.error("Player list error:", error);
-
-        if (playersList) {
-            playersList.textContent = "Could not load players.";
-        }
+        playersList.textContent = "Could not load players.";
     });
 }
 
@@ -321,7 +320,10 @@ async function loadGame() {
 
         if (!data) {
             const localSave = localStorage.getItem(saveKey());
-            if (localSave) data = JSON.parse(localSave);
+
+            if (localSave) {
+                data = JSON.parse(localSave);
+            }
         }
 
         if (!data) return false;
@@ -333,6 +335,7 @@ async function loadGame() {
         crystalsCollected = data.crystals ?? 0;
 
         updateHUD();
+
         return true;
 
     } catch (error) {
@@ -382,7 +385,7 @@ const portal = {
 };
 
 // ==========================================
-// RANDOM WORLD GENERATION
+// HELPERS
 // ==========================================
 
 function random(min, max) {
@@ -392,6 +395,10 @@ function random(min, max) {
 function distance(a, b) {
     return Math.hypot(a.x - b.x, a.y - b.y);
 }
+
+// ==========================================
+// GENERATE WORLD
+// ==========================================
 
 function generateWorld() {
     trees = [];
@@ -434,18 +441,21 @@ function generateWorld() {
             speed: random(35, 65),
             angle: random(0, Math.PI * 2),
             changeDirection: random(1, 3),
-            alive: true
+            alive: true,
+            stunned: 0
         });
     }
 }
 
 // ==========================================
-// GAME START
+// START GAME
 // ==========================================
 
 async function startGame() {
-    if (!currentUser) {
-        if (loginStatus) loginStatus.textContent = "Please sign in first.";
+    if (!currentUser || currentUser.isAnonymous) {
+        if (loginStatus) {
+            loginStatus.textContent = "Please sign in with Google first.";
+        }
         return;
     }
 
@@ -486,6 +496,10 @@ async function startGame() {
 if (startButton) {
     startButton.addEventListener("click", startGame);
 }
+
+// ==========================================
+// MENU
+// ==========================================
 
 function showMenu() {
     if (menu) menu.style.display = "flex";
@@ -541,7 +555,7 @@ function useShockwave() {
     player.shockCooldown = 4;
     revealedUntil = performance.now() + 2000;
 
-    for (let enemy of enemies) {
+    for (const enemy of enemies) {
         if (!enemy.alive) continue;
 
         if (distance(player, enemy) < 430) {
@@ -576,6 +590,7 @@ function update(dt) {
     if (keys["d"] || keys["arrowright"]) dx++;
 
     const length = Math.hypot(dx, dy) || 1;
+
     dx /= length;
     dy /= length;
 
@@ -624,9 +639,14 @@ function update(dt) {
         const dist = distance(player, enemy);
 
         if (dist < 360) {
-            const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+            const angle = Math.atan2(
+                player.y - enemy.y,
+                player.x - enemy.x
+            );
+
             enemy.x += Math.cos(angle) * enemy.speed * dt;
             enemy.y += Math.sin(angle) * enemy.speed * dt;
+
         } else {
             enemy.changeDirection -= dt;
 
@@ -653,7 +673,9 @@ function update(dt) {
         if (distance(player, crystal) < 28) {
             crystal.collected = true;
             crystalsCollected++;
+
             updateHUD();
+            saveGame();
 
             if (message) {
                 message.textContent = "CRYSTAL FOUND";
@@ -663,12 +685,13 @@ function update(dt) {
                     message.style.display = "none";
                 }, 1500);
             }
-
-            saveGame();
         }
     }
 
-    if (crystalsCollected >= MAX_CRYSTALS && distance(player, portal) < 55) {
+    if (
+        crystalsCollected >= MAX_CRYSTALS &&
+        distance(player, portal) < 55
+    ) {
         winGame();
     }
 
@@ -724,7 +747,13 @@ function drawWorld() {
 
         ctx.fillStyle = "#3b6449";
         ctx.beginPath();
-        ctx.arc(tree.x - 5, tree.y - 5, tree.radius * 0.45, 0, Math.PI * 2);
+        ctx.arc(
+            tree.x - 5,
+            tree.y - 5,
+            tree.radius * 0.45,
+            0,
+            Math.PI * 2
+        );
         ctx.fill();
     }
 
@@ -737,7 +766,13 @@ function drawWorld() {
 
         ctx.fillStyle = "#707c78";
         ctx.beginPath();
-        ctx.arc(rock.x - 3, rock.y - 3, rock.radius * 0.35, 0, Math.PI * 2);
+        ctx.arc(
+            rock.x - 3,
+            rock.y - 3,
+            rock.radius * 0.35,
+            0,
+            Math.PI * 2
+        );
         ctx.fill();
     }
 
@@ -788,7 +823,15 @@ function drawWorld() {
         ctx.fillStyle = enemy.stunned > 0 ? "#9deeff" : "#9a4a8c";
 
         ctx.beginPath();
-        ctx.ellipse(enemy.x, enemy.y, 17, 13, 0, 0, Math.PI * 2);
+        ctx.ellipse(
+            enemy.x,
+            enemy.y,
+            17,
+            13,
+            0,
+            0,
+            Math.PI * 2
+        );
         ctx.fill();
 
         ctx.fillStyle = "#e8c5ff";
@@ -811,9 +854,11 @@ function drawWorld() {
     ctx.fillStyle = "#d6faff";
     ctx.shadowBlur = 18;
     ctx.shadowColor = "#73eaff";
+
     ctx.beginPath();
     ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
     ctx.fill();
+
     ctx.shadowBlur = 0;
 
     ctx.fillStyle = "#5acfe8";
@@ -823,7 +868,7 @@ function drawWorld() {
 
     ctx.restore();
 
-    // Darkness overlay
+    // Darkness
     ctx.save();
 
     ctx.fillStyle = "rgba(0, 0, 0, 0.97)";
@@ -843,15 +888,17 @@ function drawWorld() {
 
     ctx.globalCompositeOperation = "destination-out";
     ctx.fillStyle = gradient;
+
     ctx.beginPath();
     ctx.arc(px, py, 125, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
 
-    // Temporary full reveal after shockwave
+    // Temporary reveal
     if (performance.now() < revealedUntil) {
-        const remaining = (revealedUntil - performance.now()) / 2000;
+        const remaining =
+            (revealedUntil - performance.now()) / 2000;
 
         ctx.fillStyle = `rgba(0,0,0,${0.72 * remaining})`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -871,7 +918,9 @@ function gameLoop(timestamp) {
     update(dt);
     drawWorld();
 
-    requestAnimationFrame(gameLoop);
+    if (gameStarted) {
+        requestAnimationFrame(gameLoop);
+    }
 }
 
 // ==========================================
@@ -880,7 +929,8 @@ function gameLoop(timestamp) {
 
 function updateHUD() {
     if (crystalCount) {
-        crystalCount.textContent = `${crystalsCollected}/${MAX_CRYSTALS}`;
+        crystalCount.textContent =
+            `${crystalsCollected}/${MAX_CRYSTALS}`;
     }
 
     if (cooldownElement) {
@@ -903,10 +953,12 @@ function updateHUD() {
 }
 
 // ==========================================
-// WIN / GAME OVER
+// WIN
 // ==========================================
 
 function winGame() {
+    if (!gameStarted) return;
+
     gameStarted = false;
     saveGame();
 
@@ -920,7 +972,13 @@ function winGame() {
     }
 }
 
+// ==========================================
+// GAME OVER
+// ==========================================
+
 function gameOver() {
+    if (!gameStarted) return;
+
     gameStarted = false;
     saveGame();
 
@@ -931,7 +989,10 @@ function gameOver() {
 
     setTimeout(() => {
         showMenu();
-        if (message) message.style.display = "none";
+
+        if (message) {
+            message.style.display = "none";
+        }
     }, 2500);
 }
 
@@ -941,7 +1002,10 @@ function gameOver() {
 
 if (restartButton) {
     restartButton.addEventListener("click", () => {
-        if (winScreen) winScreen.style.display = "none";
+        if (winScreen) {
+            winScreen.style.display = "none";
+        }
+
         startGame();
     });
 }
