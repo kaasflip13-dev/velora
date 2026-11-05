@@ -1,80 +1,45 @@
-
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>STREETDRIVE — Open City</title>
-<link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VÉLORA — The World That Listens</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<canvas id="game"></canvas>
-
-<div id="mainMenu" class="overlay">
-  <div class="menu-card">
-    <div class="eyebrow">OPEN WORLD DRIVING</div>
-    <h1>STREET<span>DRIVE</span></h1>
-    <p>Explore the city. Build your garage.</p>
-    <button id="playBtn" class="primary">START GAME <span>→</span></button>
-    <button id="garageBtn">MY GARAGE</button>
-    <div class="menu-footer">WASD / ARROW KEYS · ESC TO PAUSE</div>
-  </div>
-</div>
-
-<div id="pauseMenu" class="overlay hidden">
-  <div class="menu-card">
-    <div class="eyebrow">GAME PAUSED</div>
-    <h1>PAUSED</h1>
-    <button id="resumeBtn" class="primary">CONTINUE</button>
-    <button id="pauseGarageBtn">MY GARAGE</button>
-    <button id="quitBtn">MAIN MENU</button>
-  </div>
-</div>
-
-<div id="garageMenu" class="overlay hidden">
-  <div class="garage-card">
-    <div class="eyebrow">YOUR COLLECTION</div>
-    <h1>MY GARAGE</h1>
-    <div id="garageCars" class="car-list"></div>
-    <div class="garage-bottom">
-      <span>YOUR MONEY: €<b id="garageMoney">0</b></span>
-      <button id="closeGarage">BACK</button>
+<div id="menu">
+    <div class="menu-content">
+        <div class="eyebrow">AN UNKNOWN WORLD AWAITS</div>
+        <h1>VÉLORA</h1>
+        <p>THE WORLD THAT LISTENS</p>
+        <button id="startButton">ENTER THE WORLD</button>
+        <div class="menu-bottom">A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM</div>
     </div>
-  </div>
 </div>
 
-<div id="hud" class="hidden">
-  <div class="topbar">
-    <div class="brand">STREET<span>DRIVE</span></div>
-    <div class="cash">€ <span id="money">0</span></div>
-  </div>
+<div id="gameUI">
+    <header>
+        <div class="logo">VÉLORA</div>
+        <div class="objective">FIND THE LOST MEMORIES</div>
+        <div class="crystals">✦ <span id="crystalCount">0</span> / 5</div>
+    </header>
 
-  <div class="mission">
-    <div class="mission-label">CURRENT MISSION</div>
-    <b id="missionTitle">City Explorer</b>
-    <div class="progress-bg"><div id="missionProgress"></div></div>
-    <small id="missionText">Drive 500 meters</small>
-  </div>
+    <canvas id="game"></canvas>
 
-  <div class="bottom-hud">
-    <div class="speed-panel">
-      <div class="speed-number"><span id="speed">0</span><small>KM/H</small></div>
-      <div class="gear" id="gear">N</div>
-    </div>
-    <div class="car-info">
-      <b id="carName">CITY STARTER</b>
-      <small>WASD TO DRIVE</small>
-    </div>
-  </div>
+    <div id="hint">SPACE — SEND A SOUND PULSE</div>
 
-  <div class="minimap">
-    <canvas id="map" width="150" height="150"></canvas>
-    <small>YOUR LOCATION</small>
-  </div>
+    <div id="message"></div>
 </div>
 
-<div id="toast"></div>
+<div id="winScreen">
+    <div class="win-content">
+        <div class="eyebrow">MEMORY RESTORED</div>
+        <h1>THE WORLD REMEMBERS</h1>
+        <p>You brought the light back to Vélora.</p>
+        <button id="restartButton">PLAY AGAIN</button>
+    </div>
+</div>
 
 <script src="app.js"></script>
 </body>
