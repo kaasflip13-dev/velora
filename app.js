@@ -1,7 +1,32 @@
 
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-database.js";
+
 // ==========================================
-// VÉLORA — THE WORLD THAT LISTENS
-// DARKNESS + PLAYER LIGHT + SHOCKWAVES
+// FIREBASE
+// ==========================================
+
+const firebaseConfig = {
+    apiKey: "AIzaSyC8PkUPS4X9d4VLyHGnkK8WW4MUDcdus6A",
+    authDomain: "velora-5246f.firebaseapp.com",
+    projectId: "velora-5246f",
+    storageBucket: "velora-5246f.firebasestorage.app",
+    messagingSenderId: "688498933492",
+    appId: "1:688498933492:web:b28f6aea2a6f5a9ff868a1",
+    measurementId: "G-4855RPPXEF"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const database = getDatabase(firebaseApp);
+
+let playerUID = null;
+let saveTimer = 0;
+let saving = false;
+
+// ==========================================
+// GAME ELEMENTEN
 // ==========================================
 
 const canvas = document.getElementById("game");
@@ -59,6 +84,120 @@ window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
 // ==========================================
+// FIREBASE INLOGGEN
+// ==========================================
+
+async function loginFirebase() {
+    try {
+        const result = await signInAnonymously(auth);
+        playerUID = result.user.uid;
+        console.log("Firebase verbonden:", playerUID);
+        return true;
+    } catch (error) {
+        console.error("Firebase login fout:", error);
+        showMessage("Opslaan niet beschikbaar");
+        return false;
+    }
+}
+
+// ==========================================
+// OPSLAAN
+// ==========================================
+
+async function saveGame() {
+    if (!playerUID || !running || saving) return;
+
+    saving = true;
+
+    const saveData = {
+        x: player.x,
+        y: player.y,
+        health: player.health,
+        crystals: crystals,
+        enemies: enemies,
+        crystalObjects: crystalObjects.map(c => ({
+            x: c.x,
+            y: c.y,
+            collected: c.collected
+        })),
+        trees: trees,
+        rocks: rocks,
+        portal: portal,
+        savedAt: Date.now()
+    };
+
+    try {
+        await set(
+            ref(database, "players/" + playerUID + "/save"),
+            saveData
+        );
+        console.log("Game opgeslagen!");
+    } catch (error) {
+        console.error("Opslaan mislukt:", error);
+    } finally {
+        saving = false;
+    }
+}
+
+// ==========================================
+// LADEN
+// ==========================================
+
+async function loadGame() {
+    if (!playerUID) return false;
+
+    try {
+        const snapshot = await get(
+            ref(database, "players/" + playerUID + "/save")
+        );
+
+        if (!snapshot.exists()) return false;
+
+        const data = snapshot.val();
+
+        player.x = data.x ?? WORLD_SIZE / 2;
+        player.y = data.y ?? WORLD_SIZE / 2;
+        player.health = data.health ?? 100;
+        crystals = data.crystals ?? 0;
+
+        enemies = Array.isArray(data.enemies) ? data.enemies : [];
+        trees = Array.isArray(data.trees) ? data.trees : [];
+        rocks = Array.isArray(data.rocks) ? data.rocks : [];
+
+        crystalObjects = Array.isArray(data.crystalObjects)
+            ? data.crystalObjects.map(c => ({
+                ...c,
+                pulse: 0
+            }))
+            : [];
+
+        portal = data.portal || {
+            x: WORLD_SIZE - 180,
+            y: WORLD_SIZE - 180
+        };
+
+        waves = [];
+        waveCooldown = 0;
+
+        updateCrystalCount();
+        console.log("Game geladen!");
+        return true;
+
+    } catch (error) {
+        console.error("Laden mislukt:", error);
+        return false;
+    }
+}
+
+// ==========================================
+// AUTOMATISCH OPSLAAN
+// ==========================================
+
+setInterval(() => {
+    if (running) saveGame();
+}, 5000);
+
+// ==========================================
 // BESTURING
 // ==========================================
 
@@ -84,7 +223,7 @@ function distance(a, b) {
 }
 
 // ==========================================
-// WERELD
+// WERELD MAKEN
 // ==========================================
 
 function createWorld() {
@@ -119,8 +258,7 @@ function createWorld() {
         } while (Math.hypot(x - player.x, y - player.y) < 300);
 
         crystalObjects.push({
-            x,
-            y,
+            x, y,
             collected: false,
             pulse: random(0, 6)
         });
@@ -143,36 +281,61 @@ function createWorld() {
 }
 
 // ==========================================
-// START
+// START GAME
 // ==========================================
 
-function startGame() {
-    crystals = 0;
-    waveCooldown = 0;
-    messageTimer = 0;
+async function startGame() {
+    startButton.disabled = true;
+    startButton.textContent = "LOADING...";
+
+    const loggedIn = await loginFirebase();
+
+    if (!loggedIn) {
+        startButton.disabled = false;
+        startButton.textContent = "START";
+        return;
+    }
+
+    const loaded = await loadGame();
+
+    if (!loaded) {
+        crystals = 0;
+        player.x = WORLD_SIZE / 2;
+        player.y = WORLD_SIZE / 2;
+        player.health = 100;
+        createWorld();
+        showMessage("Nieuwe wereld ontdekt...");
+    } else {
+        showMessage("Je wereld is geladen!");
+    }
+
     keys = {};
-
-    player.x = WORLD_SIZE / 2;
-    player.y = WORLD_SIZE / 2;
-    player.health = 100;
-
-    createWorld();
+    waveCooldown = 0;
+    messageTimer = 2;
 
     menu.style.display = "none";
     winScreen.style.display = "none";
     gameUI.style.display = "block";
 
+    startButton.disabled = false;
+    startButton.textContent = "START";
+
     running = true;
     lastTime = performance.now();
 
     updateCrystalCount();
+    updateCamera();
+
     requestAnimationFrame(gameLoop);
 }
 
 startButton.addEventListener("click", startGame);
 
 if (restartButton) {
-    restartButton.addEventListener("click", startGame);
+    restartButton.addEventListener("click", () => {
+        if (running) return;
+        startGame();
+    });
 }
 
 // ==========================================
@@ -204,8 +367,8 @@ function updateWaves(dt) {
         wave.alpha -= 0.7 * dt;
     });
 
-    waves = waves.filter(wave =>
-        wave.alpha > 0 && wave.radius < 900
+    waves = waves.filter(w =>
+        w.alpha > 0 && w.radius < 900
     );
 
     waveCooldown = Math.max(0, waveCooldown - dt);
@@ -267,7 +430,6 @@ function updateEnemies(dt) {
             );
 
             enemy.angle = angle;
-
             enemy.x += Math.cos(angle) * enemy.speed * dt;
             enemy.y += Math.sin(angle) * enemy.speed * dt;
 
@@ -297,6 +459,7 @@ function updateCrystals() {
 
             updateCrystalCount();
             showMessage("Herinnering gevonden!");
+            saveGame();
         }
     });
 }
@@ -503,7 +666,7 @@ function drawPortal() {
 }
 
 // ==========================================
-// DONKERTE + KLEINE LICHTCIRKEL
+// DONKERTE + LICHTCIRKEL
 // ==========================================
 
 function drawNightEffect() {
@@ -511,12 +674,10 @@ function drawNightEffect() {
 
     dark.clearRect(0, 0, darknessCanvas.width, darknessCanvas.height);
 
-    // Hele scherm donker
     dark.globalCompositeOperation = "source-over";
     dark.fillStyle = "#02050b";
     dark.fillRect(0, 0, darknessCanvas.width, darknessCanvas.height);
 
-    // Shockwaves maken grote gebieden zichtbaar
     dark.globalCompositeOperation = "destination-out";
 
     waves.forEach(wave => {
@@ -524,8 +685,7 @@ function drawNightEffect() {
         const y = wave.y - camera.y;
 
         const gradient = dark.createRadialGradient(
-            x, y, 0,
-            x, y, wave.radius
+            x, y, 0, x, y, wave.radius
         );
 
         const reveal = Math.min(1, wave.alpha * 1.8);
@@ -540,13 +700,11 @@ function drawNightEffect() {
         dark.fill();
     });
 
-    // Kleine permanente lichtcirkel rond speler
     const px = player.x - camera.x;
     const py = player.y - camera.y;
 
     const playerLight = dark.createRadialGradient(
-        px, py, 5,
-        px, py, PLAYER_LIGHT_RADIUS
+        px, py, 5, px, py, PLAYER_LIGHT_RADIUS
     );
 
     playerLight.addColorStop(0, "rgba(0,0,0,0.65)");
@@ -559,12 +717,11 @@ function drawNightEffect() {
     dark.fill();
 
     dark.globalCompositeOperation = "source-over";
-
     ctx.drawImage(darknessCanvas, 0, 0);
 }
 
 // ==========================================
-// SHOCKWAVE RING
+// SHOCKWAVE TEKENEN
 // ==========================================
 
 function drawWaves() {
@@ -574,7 +731,6 @@ function drawWaves() {
 
         ctx.beginPath();
         ctx.arc(x, y, wave.radius, 0, Math.PI * 2);
-
         ctx.strokeStyle = `rgba(100,230,255,${wave.alpha})`;
         ctx.lineWidth = 3;
         ctx.stroke();
@@ -582,7 +738,7 @@ function drawWaves() {
 }
 
 // ==========================================
-// SPELER
+// SPELER TEKENEN
 // ==========================================
 
 function drawPlayer() {
@@ -628,11 +784,14 @@ function drawHUD() {
 }
 
 // ==========================================
-// WINNEN / GAME OVER
+// GAME OVER
 // ==========================================
 
 function gameOver() {
+    if (!running) return;
+
     running = false;
+    saveGame();
 
     if (message) {
         message.textContent = "Je bent gevonden...";
@@ -647,9 +806,14 @@ function gameOver() {
     }, 1800);
 }
 
+// ==========================================
+// WINNEN
+// ==========================================
+
 function checkWin() {
     if (crystals >= 5 && distance(player, portal) < 45) {
         running = false;
+        saveGame();
         winScreen.style.display = "flex";
         gameUI.style.display = "none";
     }
@@ -681,7 +845,6 @@ function render() {
     drawCrystals();
     drawEnemies();
 
-    // Eerst donkerte, dan zichtbare speler en shockwave
     drawNightEffect();
     drawWaves();
     drawPlayer();
