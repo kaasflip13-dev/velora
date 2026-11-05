@@ -7,7 +7,9 @@ import {
     signInWithRedirect,
     getRedirectResult,
     signOut,
-    onAuthStateChanged
+    onAuthStateChanged,
+    setPersistence,
+    browserLocalPersistence
 } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
 
 import {
@@ -23,7 +25,7 @@ import {
 // ==========================================
 
 const firebaseConfig = {
-    apiKey: "AIzaSyC8PkUPS4X9d4VLyHGnkK8WW4MUDcdus6A",
+    apiKey: "AIzaSyC8PkUPS4X9d4VLyHGnkK8W4MUDcdus6A",
     authDomain: "velora-5246f.firebaseapp.com",
     projectId: "velora-5246f",
     storageBucket: "velora-5246f.firebasestorage.app",
@@ -41,6 +43,14 @@ const provider = new GoogleAuthProvider();
 provider.setCustomParameters({
     prompt: "select_account"
 });
+
+// BELANGRIJK: LOGIN OPSLAAN IN DE BROWSER
+try {
+    await setPersistence(auth, browserLocalPersistence);
+    console.log("Login persistence enabled!");
+} catch (error) {
+    console.error("Persistence error:", error);
+}
 
 let currentUser = null;
 let playerUID = null;
@@ -110,6 +120,8 @@ async function loginWithGoogle() {
             loginStatus.textContent = "Opening Google login...";
         }
 
+        await setPersistence(auth, browserLocalPersistence);
+
         await signInWithRedirect(auth, provider);
 
     } catch (error) {
@@ -126,15 +138,21 @@ async function loginWithGoogle() {
     }
 }
 
+// ==========================================
+// LOGOUT
+// ==========================================
+
 async function logout() {
     if (gameStarted) {
-        saveGame();
+        await saveGame();
     }
 
     try {
         await signOut(auth);
+
         gameStarted = false;
         showMenu();
+
     } catch (error) {
         console.error("Logout error:", error);
     }
@@ -154,16 +172,17 @@ if (logoutButton) {
 
 onAuthStateChanged(auth, async user => {
 
-    // Een oude anonieme gebruiker telt niet als Google-login.
-    // We loggen die hier NIET uit, zodat een lopende redirect
-    // niet per ongeluk wordt onderbroken.
-
     if (user && !user.isAnonymous) {
         currentUser = user;
         playerUID = user.uid;
 
-        if (loginArea) loginArea.style.display = "none";
-        if (loggedInArea) loggedInArea.style.display = "block";
+        if (loginArea) {
+            loginArea.style.display = "none";
+        }
+
+        if (loggedInArea) {
+            loggedInArea.style.display = "block";
+        }
 
         if (playerName) {
             playerName.textContent = user.displayName || "VÉLORA Player";
@@ -185,8 +204,13 @@ onAuthStateChanged(auth, async user => {
         currentUser = null;
         playerUID = null;
 
-        if (loginArea) loginArea.style.display = "block";
-        if (loggedInArea) loggedInArea.style.display = "none";
+        if (loginArea) {
+            loginArea.style.display = "block";
+        }
+
+        if (loggedInArea) {
+            loggedInArea.style.display = "none";
+        }
 
         if (startButton) {
             startButton.disabled = true;
@@ -214,6 +238,7 @@ async function savePublicProfile(user) {
             photoURL: user.photoURL || "",
             lastSeen: Date.now()
         });
+
     } catch (error) {
         console.error("Public profile error:", error);
     }
@@ -267,6 +292,7 @@ function listenToPlayers() {
 
     }, error => {
         console.error("Player list error:", error);
+
         playersList.textContent = "Could not load players.";
     });
 }
@@ -523,6 +549,10 @@ window.addEventListener("keydown", event => {
 window.addEventListener("keyup", event => {
     keys[event.key.toLowerCase()] = false;
 });
+
+// ==========================================
+// SAVE BEFORE LEAVING
+// ==========================================
 
 window.addEventListener("beforeunload", () => {
     if (playerUID && gameStarted) {
