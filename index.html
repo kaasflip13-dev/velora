@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -8,39 +9,50 @@
 </head>
 <body>
 
-<div id="menu">
-    <div class="menu-content">
-        <div class="eyebrow">AN UNKNOWN WORLD AWAITS</div>
-        <h1>VÉLORA</h1>
-        <p>THE WORLD THAT LISTENS</p>
-        <button id="startButton">ENTER THE WORLD</button>
-        <div class="menu-bottom">A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM</div>
+    <div id="menu">
+        <div class="menu-content">
+            <div class="eyebrow">AN UNKNOWN WORLD AWAITS</div>
+            <h1>VÉLORA</h1>
+            <p>THE WORLD THAT LISTENS</p>
+            <button id="startButton">ENTER THE WORLD</button>
+            <div class="menu-bottom">
+                A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM
+            </div>
+        </div>
     </div>
-</div>
 
-<div id="gameUI">
-    <header>
-        <div class="logo">VÉLORA</div>
-        <div class="objective">FIND THE LOST MEMORIES</div>
-        <div class="crystals">✦ <span id="crystalCount">0</span> / 5</div>
-    </header>
+    <div id="gameUI">
+        <header>
+            <div class="logo">VÉLORA</div>
+            <div class="objective">FIND THE LOST MEMORIES</div>
+            <div class="crystals">✦ <span id="crystalCount">0</span> / 5</div>
+        </header>
 
-    <canvas id="game"></canvas>
+        <canvas id="game"></canvas>
 
-    <div id="hint">SPACE — SEND A SOUND PULSE</div>
+        <div id="cooldownContainer">
+            <div class="cooldown-label">
+                <span>SHOCK WAVE</span>
+                <span id="cooldownText">READY</span>
+            </div>
+            <div id="cooldown">
+                <div id="cooldownBar"></div>
+            </div>
+        </div>
 
-    <div id="message"></div>
-</div>
-
-<div id="winScreen">
-    <div class="win-content">
-        <div class="eyebrow">MEMORY RESTORED</div>
-        <h1>THE WORLD REMEMBERS</h1>
-        <p>You brought the light back to Vélora.</p>
-        <button id="restartButton">PLAY AGAIN</button>
+        <div id="hint">SPACE — SEND A SHOCK WAVE</div>
+        <div id="message"></div>
     </div>
-</div>
 
-<script src="app.js"></script>
+    <div id="winScreen">
+        <div class="win-content">
+            <div class="eyebrow">MEMORY RESTORED</div>
+            <h1>THE WORLD REMEMBERS</h1>
+            <p>You brought the light back to Vélora.</p>
+            <button id="restartButton">PLAY AGAIN</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
 </body>
 </html>
