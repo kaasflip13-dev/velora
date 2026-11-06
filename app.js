@@ -24,14 +24,14 @@ import {
 // ==========================================
 
 const firebaseConfig = {
-    apiKey: "AIzaSyC8PkUPS4X9d4VLyHGnkK8W4MUDcdus6A",
+    apiKey: "AIzaSyC8PkUPS4X9d4VLyHGnkK8WW4MUDcdus6A",
     authDomain: "velora-5246f.firebaseapp.com",
+    databaseURL: "https://velora-5246f-default-rtdb.europe-west1.firebasedatabase.app",
     projectId: "velora-5246f",
     storageBucket: "velora-5246f.firebasestorage.app",
     messagingSenderId: "688498933492",
     appId: "1:688498933492:web:b28f6aea2a6f5a9ff868a1",
-    measurementId: "G-4855RPPXEF",
-    databaseURL: "https://velora-5246f-default-rtdb.europe-west1.firebasedatabase.app/"
+    measurementId: "G-4855RPPXEF"
 };
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -86,7 +86,7 @@ const winScreen = document.getElementById("winScreen");
 const restartButton = document.getElementById("restartButton");
 
 // ==========================================
-// GOOGLE LOGIN - POPUP
+// GOOGLE LOGIN
 // ==========================================
 
 async function loginWithGoogle() {
@@ -100,7 +100,6 @@ async function loginWithGoogle() {
     }
 
     try {
-        // Popup wordt direct geopend vanuit de klik.
         const result = await signInWithPopup(auth, provider);
 
         console.log("Google login successful:", result.user.uid);
