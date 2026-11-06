@@ -913,55 +913,73 @@ function drawDarkness() {
     const viewW = window.innerWidth;
     const viewH = window.innerHeight;
 
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = "rgba(0, 2, 8, 0.965)";
-    ctx.fillRect(0, 0, viewW, viewH);
-
-    ctx.globalCompositeOperation = "destination-out";
-
     const px = player.x - camera.x;
     const py = player.y - camera.y;
 
-    const playerLight = ctx.createRadialGradient(px, py, 12, px, py, 155);
-    playerLight.addColorStop(0, "rgba(0,0,0,1)");
-    playerLight.addColorStop(0.55, "rgba(0,0,0,0.88)");
-    playerLight.addColorStop(1, "rgba(0,0,0,0)");
+    // Darkness over the entire screen
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "rgba(0, 2, 8, 0.94)";
+    ctx.fillRect(0, 0, viewW, viewH);
 
-    ctx.fillStyle = playerLight;
+    // Always visible small light around player
+    ctx.globalCompositeOperation = "destination-out";
+
+    const smallLight = ctx.createRadialGradient(
+        px, py, 8,
+        px, py, 185
+    );
+
+    smallLight.addColorStop(0, "rgba(0,0,0,1)");
+    smallLight.addColorStop(0.45, "rgba(0,0,0,0.95)");
+    smallLight.addColorStop(0.75, "rgba(0,0,0,0.55)");
+    smallLight.addColorStop(1, "rgba(0,0,0,0)");
+
+    ctx.fillStyle = smallLight;
     ctx.beginPath();
-    ctx.arc(px, py, 155, 0, Math.PI * 2);
+    ctx.arc(px, py, 185, 0, Math.PI * 2);
     ctx.fill();
 
-    const remaining = Math.max(0, (revealedUntil - performance.now()) / 2000);
+    // Temporary large light after SPACE shockwave
+    const remaining = Math.max(
+        0,
+        (revealedUntil - performance.now()) / 2000
+    );
 
     if (remaining > 0) {
-        const revealRadius = 690;
-        const reveal = ctx.createRadialGradient(px, py, 70, px, py, revealRadius);
+        const bigLight = ctx.createRadialGradient(
+            px, py, 80,
+            px, py, 720
+        );
 
-        reveal.addColorStop(0, `rgba(0,0,0,${0.96 * remaining})`);
-        reveal.addColorStop(0.72, `rgba(0,0,0,${0.82 * remaining})`);
-        reveal.addColorStop(1, "rgba(0,0,0,0)");
+        bigLight.addColorStop(0, `rgba(0,0,0,${remaining})`);
+        bigLight.addColorStop(0.65, `rgba(0,0,0,${remaining * 0.8})`);
+        bigLight.addColorStop(1, "rgba(0,0,0,0)");
 
-        ctx.fillStyle = reveal;
+        ctx.fillStyle = bigLight;
         ctx.beginPath();
-        ctx.arc(px, py, revealRadius, 0, Math.PI * 2);
+        ctx.arc(px, py, 720, 0, Math.PI * 2);
         ctx.fill();
     }
 
     ctx.restore();
 
+    // Soft blue glow around the player
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    const glow = ctx.createRadialGradient(px, py, 2, px, py, 85);
-    glow.addColorStop(0, "rgba(55,190,220,0.13)");
-    glow.addColorStop(1, "rgba(55,190,220,0)");
+    const glow = ctx.createRadialGradient(
+        px, py, 5,
+        px, py, 110
+    );
+
+    glow.addColorStop(0, "rgba(65,210,255,0.24)");
+    glow.addColorStop(1, "rgba(65,210,255,0)");
 
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(px, py, 85, 0, Math.PI * 2);
+    ctx.arc(px, py, 110, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
