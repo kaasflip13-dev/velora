@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
     <div id="menu">
         <div class="menu-content">
             <div class="eyebrow">AN UNKNOWN WORLD AWAITS</div>
@@ -40,32 +39,33 @@
                 <div id="playersList">Loading players...</div>
             </div>
 
-            <div class="menu-bottom">
-                A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM
-            </div>
+            <div class="menu-bottom">A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM</div>
         </div>
     </div>
 
     <div id="gameUI">
+        <canvas id="game"></canvas>
+
         <header>
             <div class="logo">VÉLORA</div>
             <div class="objective">FIND THE LOST MEMORIES</div>
             <div class="crystals">✦ <span id="crystalCount">0</span> / 5</div>
         </header>
 
-        <canvas id="game"></canvas>
+        <div id="statusPanel">
+            <div class="stat-line"><span>VITALITY</span><div class="stat-track"><div id="healthBar"></div></div></div>
+            <div class="stat-line"><span>ENERGY</span><div class="stat-track"><div id="energyBar"></div></div></div>
+        </div>
 
         <div id="cooldownContainer">
             <div class="cooldown-label">
                 <span>SHOCK WAVE</span>
                 <span id="cooldownText">READY</span>
             </div>
-            <div id="cooldown">
-                <div id="cooldownBar"></div>
-            </div>
+            <div id="cooldown"><div id="cooldownBar"></div></div>
         </div>
 
-        <div id="hint">SPACE — SEND A SHOCK WAVE</div>
+        <div id="hint">WASD — MOVE &nbsp; SHIFT — SPRINT &nbsp; SPACE — SHOCK WAVE</div>
         <div id="message"></div>
     </div>
 
