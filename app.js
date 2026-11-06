@@ -916,24 +916,19 @@ function drawDarkness() {
     const px = player.x - camera.x;
     const py = player.y - camera.y;
 
-    // Darkness over the entire screen
+    // Always dark world
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = "rgba(0, 2, 8, 0.94)";
+    ctx.fillStyle = "rgba(0, 2, 8, 0.97)";
     ctx.fillRect(0, 0, viewW, viewH);
 
-    // Always visible small light around player
+    // Cut out the permanent small player light
     ctx.globalCompositeOperation = "destination-out";
 
-    const smallLight = ctx.createRadialGradient(
-        px, py, 8,
-        px, py, 185
-    );
-
+    const smallLight = ctx.createRadialGradient(px, py, 5, px, py, 185);
     smallLight.addColorStop(0, "rgba(0,0,0,1)");
-    smallLight.addColorStop(0.45, "rgba(0,0,0,0.95)");
-    smallLight.addColorStop(0.75, "rgba(0,0,0,0.55)");
+    smallLight.addColorStop(0.6, "rgba(0,0,0,0.9)");
     smallLight.addColorStop(1, "rgba(0,0,0,0)");
 
     ctx.fillStyle = smallLight;
@@ -941,50 +936,44 @@ function drawDarkness() {
     ctx.arc(px, py, 185, 0, Math.PI * 2);
     ctx.fill();
 
-    // Temporary large light after SPACE shockwave
-    const remaining = Math.max(
-        0,
-        (revealedUntil - performance.now()) / 2000
-    );
+    // Shockwave light: fully reveals a large area
+    const remaining = (revealedUntil - performance.now()) / 2000;
 
     if (remaining > 0) {
+        const radius = 850;
+
         const bigLight = ctx.createRadialGradient(
-            px, py, 80,
-            px, py, 720
+            px, py, 20,
+            px, py, radius
         );
 
-        bigLight.addColorStop(0, `rgba(0,0,0,${remaining})`);
-        bigLight.addColorStop(0.65, `rgba(0,0,0,${remaining * 0.8})`);
+        bigLight.addColorStop(0, "rgba(0,0,0,1)");
+        bigLight.addColorStop(0.65, "rgba(0,0,0,0.95)");
         bigLight.addColorStop(1, "rgba(0,0,0,0)");
 
         ctx.fillStyle = bigLight;
         ctx.beginPath();
-        ctx.arc(px, py, 720, 0, Math.PI * 2);
+        ctx.arc(px, py, radius, 0, Math.PI * 2);
         ctx.fill();
     }
 
     ctx.restore();
 
-    // Soft blue glow around the player
+    // Blue glow around player
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    const glow = ctx.createRadialGradient(
-        px, py, 5,
-        px, py, 110
-    );
-
-    glow.addColorStop(0, "rgba(65,210,255,0.24)");
+    const glow = ctx.createRadialGradient(px, py, 5, px, py, 120);
+    glow.addColorStop(0, "rgba(65,210,255,0.3)");
     glow.addColorStop(1, "rgba(65,210,255,0)");
 
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(px, py, 110, 0, Math.PI * 2);
+    ctx.arc(px, py, 120, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
 }
-
 // ==========================================
 // COMPLETE WERELD TEKENEN
 // ==========================================
