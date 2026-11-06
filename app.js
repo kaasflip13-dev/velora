@@ -4,8 +4,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebas
 import {
     getAuth,
     GoogleAuthProvider,
-    signInWithRedirect,
-    getRedirectResult,
+    signInWithPopup,
     signOut,
     onAuthStateChanged,
     setPersistence,
@@ -44,7 +43,6 @@ provider.setCustomParameters({
     prompt: "select_account"
 });
 
-// BELANGRIJK: LOGIN OPSLAAN IN DE BROWSER
 try {
     await setPersistence(auth, browserLocalPersistence);
     console.log("Login persistence enabled!");
@@ -88,47 +86,35 @@ const winScreen = document.getElementById("winScreen");
 const restartButton = document.getElementById("restartButton");
 
 // ==========================================
-// GOOGLE LOGIN RESULT
-// ==========================================
-
-getRedirectResult(auth)
-    .then(result => {
-        if (result && result.user) {
-            console.log("Google login successful:", result.user.uid);
-        }
-    })
-    .catch(error => {
-        console.error("Google redirect error:", error);
-
-        if (loginStatus) {
-            loginStatus.textContent = error.message;
-        }
-    });
-
-// ==========================================
-// GOOGLE LOGIN
+// GOOGLE LOGIN - POPUP
 // ==========================================
 
 async function loginWithGoogle() {
+    if (googleButton) {
+        googleButton.disabled = true;
+        googleButton.textContent = "CONNECTING...";
+    }
+
+    if (loginStatus) {
+        loginStatus.textContent = "Opening Google login...";
+    }
+
     try {
-        if (googleButton) {
-            googleButton.disabled = true;
-            googleButton.textContent = "CONNECTING...";
-        }
+        // Popup wordt direct geopend vanuit de klik.
+        const result = await signInWithPopup(auth, provider);
+
+        console.log("Google login successful:", result.user.uid);
 
         if (loginStatus) {
-            loginStatus.textContent = "Opening Google login...";
+            loginStatus.textContent = "Signed in successfully!";
         }
-
-        await setPersistence(auth, browserLocalPersistence);
-
-        await signInWithRedirect(auth, provider);
 
     } catch (error) {
         console.error("Google login error:", error);
 
         if (loginStatus) {
-            loginStatus.textContent = error.message;
+            loginStatus.textContent =
+                `${error.code || "Error"}: ${error.message || "Could not sign in."}`;
         }
 
         if (googleButton) {
@@ -171,18 +157,12 @@ if (logoutButton) {
 // ==========================================
 
 onAuthStateChanged(auth, async user => {
-
     if (user && !user.isAnonymous) {
         currentUser = user;
         playerUID = user.uid;
 
-        if (loginArea) {
-            loginArea.style.display = "none";
-        }
-
-        if (loggedInArea) {
-            loggedInArea.style.display = "block";
-        }
+        if (loginArea) loginArea.style.display = "none";
+        if (loggedInArea) loggedInArea.style.display = "block";
 
         if (playerName) {
             playerName.textContent = user.displayName || "VÉLORA Player";
@@ -204,13 +184,8 @@ onAuthStateChanged(auth, async user => {
         currentUser = null;
         playerUID = null;
 
-        if (loginArea) {
-            loginArea.style.display = "block";
-        }
-
-        if (loggedInArea) {
-            loggedInArea.style.display = "none";
-        }
+        if (loginArea) loginArea.style.display = "block";
+        if (loggedInArea) loggedInArea.style.display = "none";
 
         if (startButton) {
             startButton.disabled = true;
@@ -292,7 +267,6 @@ function listenToPlayers() {
 
     }, error => {
         console.error("Player list error:", error);
-
         playersList.textContent = "Could not load players.";
     });
 }
@@ -361,7 +335,6 @@ async function loadGame() {
         crystalsCollected = data.crystals ?? 0;
 
         updateHUD();
-
         return true;
 
     } catch (error) {
@@ -750,11 +723,9 @@ function drawWorld() {
     ctx.save();
     ctx.translate(-camera.x, -camera.y);
 
-    // Ground
     ctx.fillStyle = "#18251f";
     ctx.fillRect(0, 0, WORLD_W, WORLD_H);
 
-    // Ground details
     ctx.fillStyle = "#203128";
 
     for (let x = 0; x < WORLD_W; x += 100) {
@@ -777,13 +748,7 @@ function drawWorld() {
 
         ctx.fillStyle = "#3b6449";
         ctx.beginPath();
-        ctx.arc(
-            tree.x - 5,
-            tree.y - 5,
-            tree.radius * 0.45,
-            0,
-            Math.PI * 2
-        );
+        ctx.arc(tree.x - 5, tree.y - 5, tree.radius * 0.45, 0, Math.PI * 2);
         ctx.fill();
     }
 
@@ -796,13 +761,7 @@ function drawWorld() {
 
         ctx.fillStyle = "#707c78";
         ctx.beginPath();
-        ctx.arc(
-            rock.x - 3,
-            rock.y - 3,
-            rock.radius * 0.35,
-            0,
-            Math.PI * 2
-        );
+        ctx.arc(rock.x - 3, rock.y - 3, rock.radius * 0.35, 0, Math.PI * 2);
         ctx.fill();
     }
 
@@ -853,15 +812,7 @@ function drawWorld() {
         ctx.fillStyle = enemy.stunned > 0 ? "#9deeff" : "#9a4a8c";
 
         ctx.beginPath();
-        ctx.ellipse(
-            enemy.x,
-            enemy.y,
-            17,
-            13,
-            0,
-            0,
-            Math.PI * 2
-        );
+        ctx.ellipse(enemy.x, enemy.y, 17, 13, 0, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = "#e8c5ff";
@@ -907,10 +858,7 @@ function drawWorld() {
     const px = player.x - camera.x;
     const py = player.y - camera.y;
 
-    const gradient = ctx.createRadialGradient(
-        px, py, 10,
-        px, py, 125
-    );
+    const gradient = ctx.createRadialGradient(px, py, 10, px, py, 125);
 
     gradient.addColorStop(0, "rgba(0,0,0,0)");
     gradient.addColorStop(0.65, "rgba(0,0,0,0.2)");
@@ -927,8 +875,7 @@ function drawWorld() {
 
     // Temporary reveal
     if (performance.now() < revealedUntil) {
-        const remaining =
-            (revealedUntil - performance.now()) / 2000;
+        const remaining = (revealedUntil - performance.now()) / 2000;
 
         ctx.fillStyle = `rgba(0,0,0,${0.72 * remaining})`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -959,8 +906,7 @@ function gameLoop(timestamp) {
 
 function updateHUD() {
     if (crystalCount) {
-        crystalCount.textContent =
-            `${crystalsCollected}/${MAX_CRYSTALS}`;
+        crystalCount.textContent = `${crystalsCollected}/${MAX_CRYSTALS}`;
     }
 
     if (cooldownElement) {
