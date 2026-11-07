@@ -588,13 +588,8 @@ function generateWorld() {
 // START GAME
 // ==========================================
 
-async function startGame() {
-    if (!currentUser || currentUser.isAnonymous) {
-        if (loginStatus) {
-            loginStatus.textContent = "Please sign in with Google first.";
-        }
-        return;
-    }
+async function startGame(newGame = false) {
+    if (!currentUser || currentUser.isAnonymous) return;
 
     if (startButton) {
         startButton.disabled = true;
@@ -603,6 +598,7 @@ async function startGame() {
 
     gameStarted = false;
 
+    // Helemaal opnieuw beginnen
     player.x = WORLD_W / 2;
     player.y = WORLD_H / 2;
     player.health = 100;
@@ -614,18 +610,21 @@ async function startGame() {
     portal.x = WORLD_W - 180;
     portal.y = WORLD_H - 180;
 
-    generateWorld();
-
-    await loadGame();
-
-    keys = {};
     shockwaves = [];
     particles = [];
+
+    generateWorld();
+
+    // Alleen laden als het geen nieuwe game is.
+    if (!newGame) {
+        await loadGame();
+    }
+
+    keys = {};
 
     if (menu) menu.style.display = "none";
     if (gameUI) gameUI.style.display = "block";
     if (winScreen) winScreen.style.display = "none";
-
     if (message) message.style.display = "none";
 
     gameStarted = true;
@@ -634,26 +633,17 @@ async function startGame() {
     updateCamera();
     updateHUD();
 
+    if (newGame) {
+        await saveGame();
+        showMessage("A NEW JOURNEY BEGINS");
+    }
+
     requestAnimationFrame(gameLoop);
 
     if (startButton) {
         startButton.disabled = false;
         startButton.textContent = "ENTER THE WORLD";
     }
-}
-
-if (startButton) {
-    startButton.addEventListener("click", startGame);
-}
-
-// ==========================================
-// MENU
-// ==========================================
-
-function showMenu() {
-    if (menu) menu.style.display = "flex";
-    if (gameUI) gameUI.style.display = "none";
-    if (winScreen) winScreen.style.display = "none";
 }
 
 // ==========================================
