@@ -1,6 +1,6 @@
 // ==========================================
 // VÉLORA — THE WORLD THAT LISTENS
-// FIREBASE + 2D WORLD + DARKNESS + SHOCKWAVES
+// FIREBASE + COINS + 2D WORLD
 // ==========================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
@@ -20,7 +20,8 @@ import {
     ref,
     get,
     set,
-    onValue
+    onValue,
+    runTransaction
 } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-database.js";
 
 // ==========================================
@@ -98,6 +99,7 @@ let currentUser = null;
 let playerUID = null;
 let playersUnsubscribe = null;
 let gameStarted = false;
+let coins = 0;
 
 // ==========================================
 // GOOGLE LOGIN
@@ -194,6 +196,7 @@ onAuthStateChanged(auth, async user => {
     } else {
         currentUser = null;
         playerUID = null;
+        coins = 0;
 
         if (loginArea) loginArea.style.display = "block";
         if (loggedInArea) loggedInArea.style.display = "none";
@@ -224,19 +227,47 @@ onAuthStateChanged(auth, async user => {
 async function savePublicProfile(user) {
     if (!user) return;
 
+    const profileRef = ref(database, "publicPlayers/" + user.uid);
+
     try {
-        await set(ref(database, "publicPlayers/" + user.uid), {
-            name: user.displayName || "VÉLORA Player",
-            photoURL: user.photoURL || "",
-            lastSeen: Date.now()
-        });
+        const snapshot = await get(profileRef);
+        const oldData = snapshot.exists() ? snapshot.val() : {};
+
+        if (oldData.coins === undefined) {
+            coins = 0;
+
+            await set(
+                ref(database, "publicPlayers/" + user.uid + "/coins"),
+                0
+            );
+        } else {
+            coins = Math.max(0, Number(oldData.coins) || 0);
+        }
+
+        await set(
+            ref(database, "publicPlayers/" + user.uid + "/name"),
+            user.displayName || "VÉLORA Player"
+        );
+
+        await set(
+            ref(database, "publicPlayers/" + user.uid + "/photoURL"),
+            user.photoURL || ""
+        );
+
+        await set(
+            ref(database, "publicPlayers/" + user.uid + "/lastSeen"),
+            Date.now()
+        );
+
+        console.log("Player profile loaded. Coins:", coins);
+
     } catch (error) {
         console.error("Public profile error:", error);
     }
 }
 
 // ==========================================
-// PUBLIC PLAYER LIST
+// PUBLIC PLAYER LIST / COIN RANKING
 // ==========================================
 
 function listenToPlayers() {
@@ -258,30 +289,31 @@ function listenToPlayers() {
             const players = [];
 
             snapshot.forEach(child => {
+                const data = child.val() || {};
+
                 players.push({
                     uid: child.key,
-                    ...child.val()
+                    name: data.name || "VÉLORA Player",
+                    coins: Math.max(0, Number(data.coins) || 0)
                 });
             });
 
-            players.sort((a, b) =>
-                (b.lastSeen || 0) - (a.lastSeen || 0)
-            );
+            players.sort((a, b) => b.coins - a.coins);
 
-            players.forEach(otherPlayer => {
+            players.forEach((otherPlayer, index) => {
                 const item = document.createElement("div");
                 item.className = "player-item";
 
                 const name = document.createElement("span");
-                name.textContent = otherPlayer.name || "VÉLORA Player";
+                name.textContent =
+                    `${index + 1}. ${otherPlayer.name}`;
 
-                const status = document.createElement("span");
-                status.className = "player-status";
-                status.textContent =
-                    otherPlayer.uid === playerUID ? "YOU" : "PLAYER";
+                const amount = document.createElement("span");
+                amount.textContent = `🪙 ${otherPlayer.coins}`;
 
                 item.appendChild(name);
-                item.appendChild(status);
+                item.appendChild(amount);
+
                 playersList.appendChild(item);
             });
         },
@@ -337,7 +369,6 @@ let plants = [];
 let lastTime = 0;
 let messageTimer = 0;
 
-// Apart canvas voor de donkerheid.
 const darknessCanvas = document.createElement("canvas");
 const darknessCtx = darknessCanvas.getContext("2d");
 
@@ -494,7 +525,6 @@ function generateWorld() {
     shockwaves = [];
     particles = [];
 
-    // Bomen
     for (let i = 0; i < 190; i++) {
         const x = random(70, WORLD_W - 70);
         const y = random(70, WORLD_H - 70);
@@ -508,7 +538,6 @@ function generateWorld() {
         });
     }
 
-    // Rotsen
     for (let i = 0; i < 140; i++) {
         const x = random(60, WORLD_W - 60);
         const y = random(60, WORLD_H - 60);
@@ -520,7 +549,6 @@ function generateWorld() {
         });
     }
 
-    // Vreemde planten
     for (let i = 0; i < 100; i++) {
         plants.push({
             x: random(60, WORLD_W - 60),
@@ -531,7 +559,6 @@ function generateWorld() {
         });
     }
 
-    // Kristallen
     for (let i = 0; i < MAX_CRYSTALS; i++) {
         let x;
         let y;
@@ -556,7 +583,6 @@ function generateWorld() {
         });
     }
 
-    // Monsters
     for (let i = 0; i < TOTAL_ENEMIES; i++) {
         let x;
         let y;
@@ -598,7 +624,6 @@ async function startGame(newGame = false) {
 
     gameStarted = false;
 
-    // Helemaal opnieuw beginnen
     player.x = WORLD_W / 2;
     player.y = WORLD_H / 2;
     player.health = 100;
@@ -615,7 +640,6 @@ async function startGame(newGame = false) {
 
     generateWorld();
 
-    // Alleen laden als het geen nieuwe game is.
     if (!newGame) {
         await loadGame();
     }
@@ -650,14 +674,12 @@ async function startGame(newGame = false) {
 // ENTER THE WORLD + NEW GAME BUTTONS
 // ==========================================
 
-// Bestaande voortgang laden en verder spelen.
 if (startButton) {
     startButton.addEventListener("click", () => {
         startGame(false);
     });
 }
 
-// Nieuwe game-knop toevoegen aan het menu.
 const newGameButton = document.createElement("button");
 newGameButton.id = "newGameButton";
 newGameButton.textContent = "NEW GAME";
@@ -732,7 +754,6 @@ function useShockwave() {
 
     player.shockCooldown = WAVE_COOLDOWN;
 
-    // Monsters schrikken van de golf.
     for (const enemy of enemies) {
         if (distance(player, enemy) < 570) {
             enemy.stunned = 1.5;
@@ -740,7 +761,6 @@ function useShockwave() {
         }
     }
 
-    // Lichtdeeltjes
     for (let i = 0; i < 35; i++) {
         const angle = random(0, Math.PI * 2);
         const speed = random(50, 210);
@@ -754,7 +774,6 @@ function useShockwave() {
         });
     }
 }
-
 // ==========================================
 // PLAYER UPDATE
 // ==========================================
@@ -856,21 +875,49 @@ function updateEnemies(dt) {
 }
 
 // ==========================================
-// CRYSTALS
+// CRYSTALS + 10 COINS
 // ==========================================
 
-function updateCrystals() {
+async function updateCrystals() {
     for (const crystal of crystals) {
         if (crystal.collected) continue;
 
         if (distance(player, crystal) < 28) {
+            // Meteen markeren zodat dezelfde crystal
+            // niet meerdere keren coins geeft.
             crystal.collected = true;
             crystalsCollected++;
 
-            updateHUD();
-            saveGame();
+            if (playerUID) {
+                const coinsRef = ref(
+                    database,
+                    "publicPlayers/" + playerUID + "/coins"
+                );
 
-            showMessage("MEMORY CRYSTAL FOUND");
+                try {
+                    const result = await runTransaction(
+                        coinsRef,
+                        current => {
+                            return (Number(current) || 0) + 10;
+                        }
+                    );
+
+                    if (result.committed) {
+                        coins = Number(result.snapshot.val()) || 0;
+                        console.log("Coins:", coins);
+                    } else {
+                        showMessage("COINS NOT SAVED");
+                    }
+                } catch (error) {
+                    console.error("Coins error:", error);
+                    showMessage("COINS COULD NOT BE SAVED");
+                }
+            }
+
+            updateHUD();
+            await saveGame();
+
+            showMessage("+10 COINS — MEMORY FOUND");
         }
     }
 }
@@ -972,7 +1019,6 @@ function drawWorld() {
     ctx.fillStyle = "#263b31";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Gras / terrein
     ctx.fillStyle = "#263b31";
     ctx.fillRect(
         -camera.x,
@@ -981,7 +1027,6 @@ function drawWorld() {
         WORLD_H
     );
 
-    // Grondpatroon
     ctx.strokeStyle = "rgba(180,210,170,0.08)";
     ctx.lineWidth = 1;
 
@@ -1007,7 +1052,6 @@ function drawWorld() {
         ctx.stroke();
     }
 
-    // Wereldgrens
     ctx.strokeStyle = "#829b85";
     ctx.lineWidth = 5;
 
@@ -1034,23 +1078,19 @@ function drawTrees() {
             y > canvas.height + 60
         ) continue;
 
-        // Schaduw
         ctx.fillStyle = "#14251c";
         ctx.beginPath();
         ctx.arc(x + 5, y + 7, tree.size + 4, 0, Math.PI * 2);
         ctx.fill();
 
-        // Stam
         ctx.fillStyle = "#493a2d";
         ctx.fillRect(x - 5, y, 10, tree.size);
 
-        // Boom
         ctx.fillStyle = "#244f36";
         ctx.beginPath();
         ctx.arc(x, y, tree.size, 0, Math.PI * 2);
         ctx.fill();
 
-        // Licht op bladeren
         ctx.fillStyle = "#376a43";
         ctx.beginPath();
         ctx.arc(
@@ -1237,12 +1277,10 @@ function drawEnemies() {
         ctx.fillStyle =
             enemy.stunned > 0 ? "#9deeff" : "#a4c76d";
 
-        // Lichaam
         ctx.beginPath();
         ctx.ellipse(0, 0, 17, 12, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Kop
         ctx.fillStyle =
             enemy.stunned > 0 ? "#d4faff" : "#b8df82";
 
@@ -1250,13 +1288,11 @@ function drawEnemies() {
         ctx.ellipse(10, -3, 10, 9, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Oog
         ctx.fillStyle = "#ff526b";
         ctx.beginPath();
         ctx.arc(14, -6, 2.5, 0, Math.PI * 2);
         ctx.fill();
 
-        // Kleine poten
         ctx.strokeStyle = "#6e9b61";
         ctx.lineWidth = 3;
 
@@ -1270,7 +1306,6 @@ function drawEnemies() {
         ctx.restore();
     }
 }
-
 // ==========================================
 // DARKNESS + PLAYER LIGHT + SHOCKWAVE LIGHT
 // ==========================================
@@ -1285,7 +1320,6 @@ function drawNightEffect() {
         darknessCanvas.height
     );
 
-    // De hele wereld is donker.
     dark.globalCompositeOperation = "source-over";
     dark.fillStyle = "#02050b";
 
@@ -1296,9 +1330,9 @@ function drawNightEffect() {
         darknessCanvas.height
     );
 
-    // Licht van shockwaves.
     dark.globalCompositeOperation = "destination-out";
 
+    // Shockwave licht
     for (const wave of shockwaves) {
         const x = wave.x - camera.x;
         const y = wave.y - camera.y;
@@ -1331,7 +1365,7 @@ function drawNightEffect() {
         dark.fill();
     }
 
-    // Kleine permanente lichtcirkel rond de speler.
+    // Kleine permanente lichtcirkel
     const px = player.x - camera.x;
     const py = player.y - camera.y;
 
@@ -1357,7 +1391,6 @@ function drawNightEffect() {
 
     dark.globalCompositeOperation = "source-over";
 
-    // Donkerte over de wereld tekenen.
     ctx.drawImage(darknessCanvas, 0, 0);
 }
 
@@ -1398,19 +1431,16 @@ function drawPlayer() {
     ctx.save();
     ctx.translate(x, y);
 
-    // Schaduw
     ctx.fillStyle = "rgba(0,0,0,0.3)";
     ctx.beginPath();
     ctx.ellipse(0, 12, 15, 7, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Lichaam
     ctx.fillStyle = "#e6e3d6";
     ctx.beginPath();
     ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Lichtgevende kern
     ctx.fillStyle = "#65d9df";
     ctx.shadowBlur = 12;
     ctx.shadowColor = "#65d9df";
@@ -1484,6 +1514,13 @@ function updateHUD() {
         hint.textContent =
             "WASD: MOVE  |  SHIFT: SPRINT  |  SPACE: SHOCKWAVE";
     }
+
+    // Coins laten zien als er een coins-element bestaat.
+    const coinsDisplay = document.getElementById("coinsDisplay");
+
+    if (coinsDisplay) {
+        coinsDisplay.textContent = `🪙 ${coins}`;
+    }
 }
 
 // ==========================================
@@ -1526,6 +1563,16 @@ function gameOver() {
             message.style.display = "none";
         }
     }, 2200);
+}
+
+// ==========================================
+// SHOW MENU
+// ==========================================
+
+function showMenu() {
+    if (menu) menu.style.display = "flex";
+    if (gameUI) gameUI.style.display = "none";
+    if (winScreen) winScreen.style.display = "none";
 }
 
 // ==========================================
@@ -1572,10 +1619,8 @@ function render() {
     drawCrystals();
     drawEnemies();
 
-    // Eerst de donkerheid en het licht.
     drawNightEffect();
 
-    // Daarna de zichtbare effecten en speler.
     drawWaves();
     drawParticles();
     drawPlayer();
