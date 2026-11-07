@@ -337,7 +337,7 @@ let plants = [];
 let lastTime = 0;
 let messageTimer = 0;
 
-// Apart canvas voor de donkerheid, zoals in de oude versie.
+// Apart canvas voor de donkerheid.
 const darknessCanvas = document.createElement("canvas");
 const darknessCtx = darknessCanvas.getContext("2d");
 
@@ -645,6 +645,51 @@ async function startGame(newGame = false) {
         startButton.textContent = "ENTER THE WORLD";
     }
 }
+
+// ==========================================
+// ENTER THE WORLD + NEW GAME BUTTONS
+// ==========================================
+
+// Bestaande voortgang laden en verder spelen.
+if (startButton) {
+    startButton.addEventListener("click", () => {
+        startGame(false);
+    });
+}
+
+// Nieuwe game-knop toevoegen aan het menu.
+const newGameButton = document.createElement("button");
+newGameButton.id = "newGameButton";
+newGameButton.textContent = "NEW GAME";
+newGameButton.style.marginTop = "12px";
+newGameButton.style.padding = "14px 30px";
+newGameButton.style.background = "#18252b";
+newGameButton.style.color = "#78eaff";
+newGameButton.style.border = "1px solid #78eaff";
+newGameButton.style.borderRadius = "6px";
+newGameButton.style.fontSize = "15px";
+newGameButton.style.fontWeight = "bold";
+newGameButton.style.cursor = "pointer";
+newGameButton.style.letterSpacing = "2px";
+
+if (menu) {
+    menu.appendChild(newGameButton);
+}
+
+newGameButton.addEventListener("click", async () => {
+    if (!currentUser) {
+        if (loginStatus) loginStatus.textContent = "Sign in first.";
+        return;
+    }
+
+    const confirmed = confirm(
+        "Start a NEW GAME? Your old save will be replaced permanently."
+    );
+
+    if (!confirmed) return;
+
+    await startGame(true);
+});
 
 // ==========================================
 // INPUT
