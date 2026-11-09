@@ -18,7 +18,7 @@
 
 <body>
 
-    <!-- GAME MENU -->
+    <!-- MAIN MENU -->
     <div id="menu" class="menu">
 
         <div class="menu-content">
@@ -32,26 +32,31 @@
                 AN UNKNOWN WORLD AWAITS
             </div>
 
-            <div id="authArea" class="auth-area">
-                <button id="loginButton" class="menu-button">
+            <!-- LOGIN AREA -->
+            <div id="loginArea" class="auth-area">
+
+                <button id="googleButton" class="menu-button">
                     SIGN IN WITH GOOGLE
                 </button>
 
-                <div id="userInfo"></div>
+                <div id="loginStatus" class="menu-message"></div>
 
-                <button id="logoutButton" class="menu-button" hidden>
-                    SIGN OUT
-                </button>
             </div>
 
-            <div id="menuMessage" class="menu-message"></div>
+            <!-- LOGGED IN AREA -->
+            <div id="loggedInArea" hidden>
+
+                <div id="playerName"></div>
+                <div id="playerEmail"></div>
+
+                <button id="logoutButton" class="menu-button">
+                    SIGN OUT
+                </button>
+
+            </div>
 
             <button id="startButton" class="main-button">
                 ENTER THE WORLD
-            </button>
-
-            <button id="newGameButton" class="menu-button" hidden>
-                NEW GAME
             </button>
 
             <div class="objective">
@@ -63,16 +68,17 @@
             </div>
 
         </div>
+
     </div>
 
 
-    <!-- GAME -->
-    <div id="gameContainer" class="game-container" hidden>
+    <!-- GAME AREA -->
+    <div id="gameUI" hidden>
 
-        <canvas id="gameCanvas"></canvas>
+        <canvas id="game"></canvas>
 
         <!-- HUD -->
-        <div id="hud" class="hud">
+        <div class="hud">
 
             <div class="hud-left">
 
@@ -82,16 +88,8 @@
                 </div>
 
                 <div class="hud-panel">
-                    <span class="hud-label">COINS</span>
-                    <span id="coinCount">0</span>
-                </div>
-
-            </div>
-
-            <div class="hud-right">
-
-                <div class="hud-panel">
                     <span class="hud-label">HEALTH</span>
+
                     <div class="bar">
                         <div id="healthBar" class="bar-fill health-fill"></div>
                     </div>
@@ -99,6 +97,7 @@
 
                 <div class="hud-panel">
                     <span class="hud-label">ENERGY</span>
+
                     <div class="bar">
                         <div id="energyBar" class="bar-fill energy-fill"></div>
                     </div>
@@ -106,27 +105,54 @@
 
             </div>
 
+            <div class="hud-right">
+
+                <div class="hud-panel">
+                    <span class="hud-label">SHOCKWAVE</span>
+                    <span id="cooldown">READY</span>
+                </div>
+
+            </div>
+
         </div>
 
-        <!-- GAME MESSAGE -->
-        <div id="gameMessage" class="game-message"></div>
+        <!-- HINT -->
+        <div id="hint" class="game-message"></div>
 
-        <!-- PAUSE BUTTON -->
-        <button id="pauseButton" class="pause-button">
-            PAUSE
-        </button>
+        <!-- MESSAGE -->
+        <div id="message" class="game-message"></div>
+
+    </div>
+
+
+    <!-- WIN SCREEN -->
+    <div id="winScreen" class="overlay" hidden>
+
+        <div class="overlay-content">
+
+            <h2>MEMORIES RESTORED</h2>
+
+            <p>
+                You have brought light back to VÉLORA.
+            </p>
+
+            <button id="restartButton" class="main-button">
+                PLAY AGAIN
+            </button>
+
+        </div>
 
     </div>
 
 
     <!-- LEADERBOARD -->
-    <section id="leaderboard" class="leaderboard">
+    <section class="leaderboard">
 
         <h2>GLOBAL LEADERBOARD</h2>
 
         <p>THE EXPLORERS OF VÉLORA</p>
 
-        <div id="leaderboardList">
+        <div id="playersList">
             <div class="leaderboard-loading">
                 Loading explorers...
             </div>
@@ -135,31 +161,7 @@
     </section>
 
 
-    <!-- GAME OVER -->
-    <div id="gameOverScreen" class="overlay" hidden>
-        <div class="overlay-content">
-            <h2>YOUR JOURNEY ENDS</h2>
-            <p id="gameOverText">The world has fallen silent.</p>
-            <button id="returnMenuButton" class="main-button">
-                RETURN TO MENU
-            </button>
-        </div>
-    </div>
-
-
-    <!-- VICTORY -->
-    <div id="victoryScreen" class="overlay" hidden>
-        <div class="overlay-content">
-            <h2>MEMORIES RESTORED</h2>
-            <p>You have brought light back to VÉLORA.</p>
-            <button id="victoryMenuButton" class="main-button">
-                RETURN TO MENU
-            </button>
-        </div>
-    </div>
-
-
-    <!-- FIREBASE + GAME -->
+    <!-- GAME SCRIPT -->
     <script type="module" src="./app.js"></script>
 
 </body>
