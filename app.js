@@ -269,10 +269,6 @@ function publicUserRef(uid) {
     return doc(db, "users", uid);
 }
 
-function privateUserRef(uid) {
-    return doc(db, "privateUsers", uid);
-}
-
 async function savePublicProfile(user) {
     if (!user) return;
 
@@ -504,7 +500,7 @@ async function saveGame() {
 
     try {
         await setDoc(
-            privateUserRef(playerUID),
+            publicUserRef(playerUID),
             {
                 save: saveData,
                 updatedAt: serverTimestamp()
@@ -531,7 +527,7 @@ async function clearSave() {
 
     try {
         await setDoc(
-            privateUserRef(playerUID),
+            publicUserRef(playerUID),
             {
                 save: {
                     x: WORLD_W / 2,
@@ -576,7 +572,7 @@ async function loadGame() {
     let failed = false;
 
     try {
-        const snapshot = await getDoc(privateUserRef(playerUID));
+        const snapshot = await getDoc(publicUserRef(playerUID));
         data = snapshot.exists() ? (snapshot.data()?.save || null) : null;
     } catch (error) {
         console.error("Firestore load error:", error);
