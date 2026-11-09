@@ -1,7 +1,6 @@
-
 // ==========================================
 // VÉLORA — THE WORLD THAT LISTENS
-// FIREBASE + LEADERBOARD + COINS + 2D WORLD
+// FIREBASE FIRESTORE + COINS + 2D WORLD
 // ==========================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
@@ -17,13 +16,19 @@ import {
 } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
 
 import {
-    getDatabase,
-    ref,
-    get,
-    set,
-    onValue,
-    runTransaction
-} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-database.js";
+    getFirestore,
+    doc,
+    getDoc,
+    setDoc,
+    updateDoc,
+    increment,
+    collection,
+    query,
+    orderBy,
+    limit,
+    onSnapshot,
+    serverTimestamp
+} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 
 // ==========================================
 // FIREBASE
@@ -42,7 +47,7 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
-const database = getDatabase(firebaseApp);
+const db = getFirestore(firebaseApp);
 const provider = new GoogleAuthProvider();
 
 provider.setCustomParameters({
@@ -62,7 +67,7 @@ try {
 const canvas = document.getElementById("game");
 
 if (!canvas) {
-    throw new Error('Canvas met id="game" niet gevonden.');
+    throw new Error('Canvas met id="game" niet gevonden in index.html.');
 }
 
 const ctx = canvas.getContext("2d");
@@ -101,7 +106,6 @@ let playerUID = null;
 let playersUnsubscribe = null;
 let gameStarted = false;
 let coins = 0;
-let profileLoaded = false;
 
 // ==========================================
 // GOOGLE LOGIN
@@ -119,12 +123,16 @@ async function loginWithGoogle() {
 
     try {
         await signInWithPopup(auth, provider);
+
+        if (loginStatus) {
+            loginStatus.textContent = "Signed in successfully!";
+        }
     } catch (error) {
         console.error("Google login error:", error);
 
         if (loginStatus) {
             loginStatus.textContent =
-                `${error.code || "Error"}: ${error.message}`;
+                `${error.code || "Error"}: ${error.message || "Could not sign in."}`;
         }
 
         if (googleButton) {
@@ -171,14 +179,12 @@ onAuthStateChanged(auth, async user => {
     if (user && !user.isAnonymous) {
         currentUser = user;
         playerUID = user.uid;
-        profileLoaded = false;
 
         if (loginArea) loginArea.style.display = "none";
         if (loggedInArea) loggedInArea.style.display = "block";
 
         if (playerName) {
-            playerName.textContent =
-                user.displayName || "VÉLORA Player";
+            playerName.textContent = user.displayName || "VÉLORA Player";
         }
 
         if (playerEmail) {
@@ -186,37 +192,20 @@ onAuthStateChanged(auth, async user => {
         }
 
         if (startButton) {
-            startButton.disabled = true;
-            startButton.textContent = "LOADING PROFILE...";
+            startButton.disabled = false;
+            startButton.textContent = "ENTER THE WORLD";
         }
 
         await savePublicProfile(user);
-
-        if (currentUser?.uid === user.uid) {
-            profileLoaded = true;
-
-            if (startButton) {
-                startButton.disabled = false;
-                startButton.textContent = "ENTER THE WORLD";
-            }
-
-            listenToPlayers();
-            updateHUD();
-        }
+        listenToPlayers();
 
     } else {
         currentUser = null;
         playerUID = null;
-        profileLoaded = false;
         coins = 0;
 
         if (loginArea) loginArea.style.display = "block";
         if (loggedInArea) loggedInArea.style.display = "none";
-
-        if (googleButton) {
-            googleButton.disabled = false;
-            googleButton.textContent = "SIGN IN WITH GOOGLE";
-        }
 
         if (startButton) {
             startButton.disabled = true;
@@ -238,129 +227,92 @@ onAuthStateChanged(auth, async user => {
 });
 
 // ==========================================
-// PUBLIC PLAYER PROFILE
-// SPACEBOTS-STYLE DATABASE FIELDS
+// FIRESTORE PLAYER PROFILE + LEADERBOARD
 // ==========================================
+
+function publicUserRef(uid) {
+    return doc(db, "users", uid);
+}
+
+function privateUserRef(uid) {
+    return doc(db, "privateUsers", uid);
+}
 
 async function savePublicProfile(user) {
     if (!user) return;
 
-    const profileRef = ref(
-        database,
-        "publicPlayers/" + user.uid
-    );
-
     try {
-        const snapshot = await get(profileRef);
+        const profileRef = publicUserRef(user.uid);
+        const snapshot = await getDoc(profileRef);
 
-        const oldData = snapshot.exists()
-            ? snapshot.val()
-            : {};
-
-        coins = Math.max(
-            0,
-            Number(oldData.coins) || 0
-        );
-
-        const now = Date.now();
-
-        const profile = {
+        const profileData = {
             displayName: user.displayName || "VÉLORA Player",
-            name: user.displayName || "VÉLORA Player",
             photoURL: user.photoURL || "",
-
-            // Existing coins are preserved.
-            coins: coins,
-
-            // Extra leaderboard statistics.
-            highscore: Number(oldData.highscore) || 0,
-            totalKills: Number(oldData.totalKills) || 0,
-            bossKills: Number(oldData.bossKills) || 0,
-
-            updatedAt: now,
-            lastSeen: now
+            updatedAt: serverTimestamp()
         };
 
-        await set(profileRef, profile);
+        if (!snapshot.exists()) {
+            profileData.coins = 0;
+            profileData.highscore = 0;
+            profileData.createdAt = serverTimestamp();
+        }
 
-        console.log("VÉLORA profile loaded:", profile);
+        await setDoc(profileRef, profileData, { merge: true });
+
+        const updated = await getDoc(profileRef);
+        coins = Math.max(0, Number(updated.data()?.coins) || 0);
 
         updateHUD();
 
+        console.log("Firestore profile loaded. Coins:", coins);
+
     } catch (error) {
-        console.error("Public profile error:", error);
+        console.error("Firestore profile error:", error);
 
         if (loginStatus) {
             loginStatus.textContent =
-                "Could not load Firebase profile.";
+                "Could not load your Firestore profile: " + error.message;
         }
     }
 }
 
-// ==========================================
-// LIVE PLAYER LIST + COIN LEADERBOARD
-// ==========================================
-
 function listenToPlayers() {
-    if (playersUnsubscribe) return;
+    if (playersUnsubscribe) {
+        playersUnsubscribe();
+        playersUnsubscribe = null;
+    }
 
-    playersUnsubscribe = onValue(
-        ref(database, "publicPlayers"),
+    const leaderboardQuery = query(
+        collection(db, "users"),
+        orderBy("coins", "desc"),
+        limit(50)
+    );
 
+    playersUnsubscribe = onSnapshot(
+        leaderboardQuery,
         snapshot => {
             if (!playersList) return;
 
             playersList.innerHTML = "";
 
-            if (!snapshot.exists()) {
+            if (snapshot.empty) {
                 playersList.textContent = "No players yet.";
                 return;
             }
 
-            const players = [];
+            snapshot.docs.forEach((playerDoc, index) => {
+                const data = playerDoc.data() || {};
 
-            snapshot.forEach(child => {
-                const data = child.val() || {};
-
-                const playerCoins = Math.max(
-                    0,
-                    Number(data.coins) || 0
-                );
-
-                // Synchronize your own coins from Firebase.
-                if (child.key === playerUID) {
-                    coins = playerCoins;
-                    updateHUD();
-                }
-
-                players.push({
-                    uid: child.key,
-                    name: data.displayName ||
-                          data.name ||
-                          "VÉLORA Player",
-                    photoURL: data.photoURL || "",
-                    coins: playerCoins,
-                    highscore: Number(data.highscore) || 0,
-                    totalKills: Number(data.totalKills) || 0,
-                    bossKills: Number(data.bossKills) || 0
-                });
-            });
-
-            players.sort((a, b) => b.coins - a.coins);
-
-            players.forEach((otherPlayer, index) => {
                 const item = document.createElement("div");
                 item.className = "player-item";
 
                 const name = document.createElement("span");
-
                 name.textContent =
-                    `${index + 1}. ${otherPlayer.name}`;
+                    `${index + 1}. ${data.displayName || "VÉLORA Player"}`;
 
                 const amount = document.createElement("span");
-
                 amount.textContent =
-                    `🪙 ${otherPlayer.coins}`;
+                    `🪙 ${Math.max(0, Number(data.coins) || 0)}`;
 
                 item.appendChild(name);
                 item.appendChild(amount);
@@ -368,12 +320,13 @@ function listenToPlayers() {
                 playersList.appendChild(item);
             });
         },
-
         error => {
-            console.error("Leaderboard error:", error);
+            console.error("Firestore leaderboard error:", error);
 
-            playersList.textContent =
-                "Could not load players.";
+            if (playersList) {
+                playersList.textContent =
+                    "Could not load leaderboard: " + error.message;
+            }
         }
     );
 }
@@ -387,16 +340,12 @@ const WORLD_H = 3200;
 
 const MAX_CRYSTALS = 5;
 const TOTAL_ENEMIES = 7;
-
 const PLAYER_LIGHT_RADIUS = 125;
 
 const WAVE_COOLDOWN = 4;
 const WAVE_DURATION = 2;
 
-let camera = {
-    x: 0,
-    y: 0
-};
+let camera = { x: 0, y: 0 };
 
 let player = {
     x: WORLD_W / 2,
@@ -410,7 +359,6 @@ let player = {
 };
 
 let keys = {};
-
 let crystalsCollected = 0;
 
 let shockwaves = [];
@@ -423,6 +371,7 @@ let plants = [];
 
 let lastTime = 0;
 let messageTimer = 0;
+let autosaveTimer = 0;
 
 const darknessCanvas = document.createElement("canvas");
 const darknessCtx = darknessCanvas.getContext("2d");
@@ -442,10 +391,7 @@ function random(min, max) {
 }
 
 function distance(a, b) {
-    return Math.hypot(
-        a.x - b.x,
-        a.y - b.y
-    );
+    return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function showMessage(text) {
@@ -453,7 +399,6 @@ function showMessage(text) {
 
     message.textContent = text;
     message.style.display = "block";
-
     messageTimer = 2;
 }
 
@@ -475,14 +420,8 @@ window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
 // ==========================================
-// SAVE SYSTEM
+// FIRESTORE SAVE SYSTEM
 // ==========================================
-
-function saveKey() {
-    return playerUID
-        ? "velora_backup_" + playerUID
-        : "velora_backup";
-}
 
 function makeSaveData() {
     return {
@@ -501,88 +440,77 @@ async function saveGame() {
     const saveData = makeSaveData();
 
     try {
-        localStorage.setItem(
-            saveKey(),
-            JSON.stringify(saveData)
-        );
-    } catch (error) {
-        console.error("Local save error:", error);
-    }
-
-    try {
-        await set(
-            ref(database, "players/" + playerUID + "/save"),
-            saveData
+        await setDoc(
+            privateUserRef(playerUID),
+            {
+                save: saveData,
+                updatedAt: serverTimestamp()
+            },
+            { merge: true }
         );
 
-        console.log("Game saved!");
+        console.log("Game saved to Firestore!");
 
     } catch (error) {
-        console.error("Firebase save error:", error);
+        console.error("Firestore save error:", error);
+        showMessage("SAVE FAILED");
     }
 }
 
 async function loadGame() {
     if (!playerUID) return false;
 
-    let data = null;
-
     try {
-        const snapshot = await get(
-            ref(database, "players/" + playerUID + "/save")
+        const snapshot = await getDoc(privateUserRef(playerUID));
+
+        if (!snapshot.exists()) {
+            console.log("No Firestore save found.");
+            return false;
+        }
+
+        const data = snapshot.data()?.save;
+
+        if (!data) {
+            console.log("No game save found.");
+            return false;
+        }
+
+        player.x = Math.max(
+            player.radius,
+            Math.min(WORLD_W - player.radius, data.x ?? player.x)
         );
 
-        if (snapshot.exists()) {
-            data = snapshot.val();
-        }
+        player.y = Math.max(
+            player.radius,
+            Math.min(WORLD_H - player.radius, data.y ?? player.y)
+        );
+
+        player.health = Math.max(
+            1,
+            Math.min(100, data.health ?? 100)
+        );
+
+        player.energy = Math.max(
+            0,
+            Math.min(100, data.energy ?? 100)
+        );
+
+        crystalsCollected = Math.max(
+            0,
+            Math.min(MAX_CRYSTALS, data.crystals ?? 0)
+        );
+
+        updateHUD();
+
+        console.log("Game loaded from Firestore!");
+
+        return true;
 
     } catch (error) {
-        console.error("Firebase load error:", error);
+        console.error("Firestore load error:", error);
+        showMessage("SAVE COULD NOT LOAD");
+        return false;
     }
-
-    if (!data) {
-        try {
-            const localSave = localStorage.getItem(saveKey());
-
-            if (localSave) {
-                data = JSON.parse(localSave);
-            }
-
-        } catch (error) {
-            console.error("Local load error:", error);
-        }
-    }
-
-    if (!data) return false;
-
-    player.x = Math.max(
-        player.radius,
-        Math.min(WORLD_W - player.radius, data.x ?? player.x)
-    );
-
-    player.y = Math.max(
-        player.radius,
-        Math.min(WORLD_H - player.radius, data.y ?? player.y)
-    );
-
-    player.health = Math.max(
-        1,
-        Math.min(100, data.health ?? 100)
-    );
-
-    player.energy = Math.max(
-        0,
-        Math.min(100, data.energy ?? 100)
-    );
-
-    crystalsCollected = Math.max(
-        0,
-        Math.min(MAX_CRYSTALS, data.crystals ?? 0)
-    );
-
-    updateHUD();
-
-    return true;
 }
 
 // ==========================================
@@ -598,15 +526,11 @@ function generateWorld() {
     shockwaves = [];
     particles = [];
 
-    // TREES
-
     for (let i = 0; i < 190; i++) {
         const x = random(70, WORLD_W - 70);
         const y = random(70, WORLD_H - 70);
 
-        if (Math.hypot(x - player.x, y - player.y) < 100) {
-            continue;
-        }
+        if (Math.hypot(x - player.x, y - player.y) < 100) continue;
 
         trees.push({
             x,
@@ -615,31 +539,26 @@ function generateWorld() {
         });
     }
 
-    // ROCKS
-
     for (let i = 0; i < 140; i++) {
+        const x = random(60, WORLD_W - 60);
+        const y = random(60, WORLD_H - 60);
+
         rocks.push({
-            x: random(60, WORLD_W - 60),
-            y: random(60, WORLD_H - 60),
+            x,
+            y,
             size: random(8, 19)
         });
     }
-
-    // PLANTS
 
     for (let i = 0; i < 100; i++) {
         plants.push({
             x: random(60, WORLD_W - 60),
             y: random(60, WORLD_H - 60),
             size: random(5, 12),
-            color: Math.random() > 0.5
-                ? "#477e75"
-                : "#596b9c",
+            color: Math.random() > 0.5 ? "#477e75" : "#596b9c",
             pulse: random(0, 6)
         });
     }
-
-    // CRYSTALS
 
     for (let i = 0; i < MAX_CRYSTALS; i++) {
         let x;
@@ -650,12 +569,9 @@ function generateWorld() {
             x = random(180, WORLD_W - 180);
             y = random(180, WORLD_H - 180);
             attempts++;
-
         } while (
-            (
-                Math.hypot(x - player.x, y - player.y) < 300 ||
-                Math.hypot(x - portal.x, y - portal.y) < 180
-            ) &&
+            (Math.hypot(x - player.x, y - player.y) < 300 ||
+             Math.hypot(x - portal.x, y - portal.y) < 180) &&
             attempts < 100
         );
 
@@ -668,8 +584,6 @@ function generateWorld() {
         });
     }
 
-    // ENEMIES
-
     for (let i = 0; i < TOTAL_ENEMIES; i++) {
         let x;
         let y;
@@ -679,7 +593,6 @@ function generateWorld() {
             x = random(100, WORLD_W - 100);
             y = random(100, WORLD_H - 100);
             attempts++;
-
         } while (
             Math.hypot(x - player.x, y - player.y) < 350 &&
             attempts < 100
@@ -703,7 +616,7 @@ function generateWorld() {
 // ==========================================
 
 async function startGame(newGame = false) {
-    if (!currentUser || !profileLoaded) return;
+    if (!currentUser || currentUser.isAnonymous) return;
 
     if (startButton) {
         startButton.disabled = true;
@@ -741,6 +654,7 @@ async function startGame(newGame = false) {
 
     gameStarted = true;
     lastTime = performance.now();
+    autosaveTimer = 0;
 
     updateCamera();
     updateHUD();
@@ -759,7 +673,7 @@ async function startGame(newGame = false) {
 }
 
 // ==========================================
-// ENTER THE WORLD
+// ENTER THE WORLD + NEW GAME BUTTONS
 // ==========================================
 
 if (startButton) {
@@ -768,15 +682,10 @@ if (startButton) {
     });
 }
 
-// ==========================================
-// NEW GAME BUTTON
-// ==========================================
-
 const newGameButton = document.createElement("button");
 
 newGameButton.id = "newGameButton";
 newGameButton.textContent = "NEW GAME";
-
 newGameButton.style.marginTop = "12px";
 newGameButton.style.padding = "14px 30px";
 newGameButton.style.background = "#18252b";
@@ -793,10 +702,8 @@ if (menu) {
 }
 
 newGameButton.addEventListener("click", async () => {
-    if (!currentUser || !profileLoaded) {
-        if (loginStatus) {
-            loginStatus.textContent = "Sign in first.";
-        }
+    if (!currentUser) {
+        if (loginStatus) loginStatus.textContent = "Sign in first.";
         return;
     }
 
@@ -893,31 +800,18 @@ function updatePlayer(dt) {
         dy /= length;
 
         const sprinting = keys["shift"] && player.energy > 0;
-
-        const speed = sprinting
-            ? player.sprint
-            : player.speed;
+        const speed = sprinting ? player.sprint : player.speed;
 
         player.x += dx * speed * dt;
         player.y += dy * speed * dt;
 
         if (sprinting) {
-            player.energy = Math.max(
-                0,
-                player.energy - 25 * dt
-            );
+            player.energy = Math.max(0, player.energy - 25 * dt);
         } else {
-            player.energy = Math.min(
-                100,
-                player.energy + 13 * dt
-            );
+            player.energy = Math.min(100, player.energy + 13 * dt);
         }
-
     } else {
-        player.energy = Math.min(
-            100,
-            player.energy + 13 * dt
-        );
+        player.energy = Math.min(100, player.energy + 13 * dt);
     }
 
     player.x = Math.max(
@@ -967,7 +861,6 @@ function updateEnemies(dt) {
             if (dist < player.radius + enemy.radius) {
                 player.health -= 15 * dt;
             }
-
         } else {
             enemy.changeDirection -= dt;
 
@@ -976,22 +869,12 @@ function updateEnemies(dt) {
                 enemy.changeDirection = random(1, 3);
             }
 
-            enemy.x +=
-                Math.cos(enemy.angle) * enemy.speed * 0.3 * dt;
-
-            enemy.y +=
-                Math.sin(enemy.angle) * enemy.speed * 0.3 * dt;
+            enemy.x += Math.cos(enemy.angle) * enemy.speed * 0.3 * dt;
+            enemy.y += Math.sin(enemy.angle) * enemy.speed * 0.3 * dt;
         }
 
-        enemy.x = Math.max(
-            20,
-            Math.min(WORLD_W - 20, enemy.x)
-        );
-
-        enemy.y = Math.max(
-            20,
-            Math.min(WORLD_H - 20, enemy.y)
-        );
+        enemy.x = Math.max(20, Math.min(WORLD_W - 20, enemy.x));
+        enemy.y = Math.max(20, Math.min(WORLD_H - 20, enemy.y));
     }
 }
 
@@ -999,52 +882,51 @@ function updateEnemies(dt) {
 // CRYSTALS + 10 COINS
 // ==========================================
 
+let collectingCrystal = false;
+
 async function updateCrystals() {
+    if (collectingCrystal) return;
+
     for (const crystal of crystals) {
         if (crystal.collected) continue;
 
         if (distance(player, crystal) < 28) {
             crystal.collected = true;
             crystalsCollected++;
+            collectingCrystal = true;
 
-            if (playerUID) {
-                const coinsRef = ref(
-                    database,
-                    "publicPlayers/" + playerUID + "/coins"
-                );
+            try {
+                if (playerUID) {
+                    await updateDoc(publicUserRef(playerUID), {
+                        coins: increment(10),
+                        updatedAt: serverTimestamp()
+                    });
 
-                try {
-                    const result = await runTransaction(
-                        coinsRef,
-                        current => {
-                            return (Number(current) || 0) + 10;
-                        }
-                    );
+                    const profileSnapshot = await getDoc(publicUserRef(playerUID));
 
-                    if (result.committed) {
-                        coins = Number(result.snapshot.val()) || 0;
-
-                        console.log("Coins:", coins);
-                    } else {
-                        showMessage("COINS NOT SAVED");
+                    if (profileSnapshot.exists()) {
+                        coins = Number(profileSnapshot.data().coins) || 0;
                     }
-
-                } catch (error) {
-                    console.error("Coins error:", error);
-                    showMessage("COINS COULD NOT BE SAVED");
                 }
+
+                updateHUD();
+                await saveGame();
+
+                showMessage("+10 COINS — MEMORY FOUND");
+
+            } catch (error) {
+                console.error("Coin save error:", error);
+                showMessage("COINS COULD NOT BE SAVED");
             }
 
-            updateHUD();
-            await saveGame();
-
-            showMessage("+10 COINS — MEMORY FOUND");
+            collectingCrystal = false;
+            break;
         }
     }
 }
 
 // ==========================================
-// WAVES + PARTICLES UPDATE
+// WAVES AND PARTICLES UPDATE
 // ==========================================
 
 function updateWaves(dt) {
@@ -1055,16 +937,10 @@ function updateWaves(dt) {
         );
 
         wave.life -= dt;
-
-        wave.alpha = Math.max(
-            0,
-            wave.life / WAVE_DURATION
-        );
+        wave.alpha = Math.max(0, wave.life / WAVE_DURATION);
     }
 
-    shockwaves = shockwaves.filter(
-        wave => wave.life > 0
-    );
+    shockwaves = shockwaves.filter(wave => wave.life > 0);
 
     for (const particle of particles) {
         particle.x += particle.vx * dt;
@@ -1072,9 +948,7 @@ function updateWaves(dt) {
         particle.life -= dt;
     }
 
-    particles = particles.filter(
-        particle => particle.life > 0
-    );
+    particles = particles.filter(particle => particle.life > 0);
 }
 
 // ==========================================
@@ -1124,6 +998,13 @@ function update(dt) {
     updateMessage(dt);
     updateCamera();
 
+    autosaveTimer += dt;
+
+    if (autosaveTimer >= 15) {
+        autosaveTimer = 0;
+        saveGame();
+    }
+
     if (player.health <= 0) {
         player.health = 0;
         gameOver();
@@ -1146,16 +1027,9 @@ function update(dt) {
 
 function drawWorld() {
     ctx.fillStyle = "#263b31";
-
-    ctx.fillRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.fillStyle = "#263b31";
-
     ctx.fillRect(
         -camera.x,
         -camera.y,
@@ -1215,28 +1089,19 @@ function drawTrees() {
         ) continue;
 
         ctx.fillStyle = "#14251c";
-
         ctx.beginPath();
-        ctx.arc(
-            x + 5,
-            y + 7,
-            tree.size + 4,
-            0,
-            Math.PI * 2
-        );
+        ctx.arc(x + 5, y + 7, tree.size + 4, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = "#493a2d";
         ctx.fillRect(x - 5, y, 10, tree.size);
 
         ctx.fillStyle = "#244f36";
-
         ctx.beginPath();
         ctx.arc(x, y, tree.size, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = "#376a43";
-
         ctx.beginPath();
         ctx.arc(
             x - 5,
@@ -1265,7 +1130,6 @@ function drawRocks() {
         ) continue;
 
         ctx.fillStyle = "#465452";
-
         ctx.beginPath();
         ctx.ellipse(
             x,
@@ -1279,7 +1143,6 @@ function drawRocks() {
         ctx.fill();
 
         ctx.fillStyle = "#697477";
-
         ctx.beginPath();
         ctx.ellipse(
             x - 3,
@@ -1391,29 +1254,12 @@ function drawPortal() {
     ctx.lineWidth = 6;
 
     ctx.beginPath();
-    ctx.ellipse(
-        0,
-        0,
-        25,
-        40,
-        0,
-        0,
-        Math.PI * 2
-    );
+    ctx.ellipse(0, 0, 25, 40, 0, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.fillStyle = "rgba(140,80,255,0.2)";
-
     ctx.beginPath();
-    ctx.ellipse(
-        0,
-        0,
-        19,
-        34,
-        0,
-        0,
-        Math.PI * 2
-    );
+    ctx.ellipse(0, 0, 19, 34, 0, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -1438,40 +1284,21 @@ function drawEnemies() {
         ctx.translate(x, y);
         ctx.rotate(enemy.angle);
 
-        ctx.fillStyle = enemy.stunned > 0
-            ? "#9deeff"
-            : "#a4c76d";
+        ctx.fillStyle =
+            enemy.stunned > 0 ? "#9deeff" : "#a4c76d";
 
         ctx.beginPath();
-        ctx.ellipse(
-            0,
-            0,
-            17,
-            12,
-            0,
-            0,
-            Math.PI * 2
-        );
+        ctx.ellipse(0, 0, 17, 12, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = enemy.stunned > 0
-            ? "#d4faff"
-            : "#b8df82";
+        ctx.fillStyle =
+            enemy.stunned > 0 ? "#d4faff" : "#b8df82";
 
         ctx.beginPath();
-        ctx.ellipse(
-            10,
-            -3,
-            10,
-            9,
-            0,
-            0,
-            Math.PI * 2
-        );
+        ctx.ellipse(10, -3, 10, 9, 0, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = "#ff526b";
-
         ctx.beginPath();
         ctx.arc(14, -6, 2.5, 0, Math.PI * 2);
         ctx.fill();
@@ -1516,25 +1343,17 @@ function drawNightEffect() {
 
     dark.globalCompositeOperation = "destination-out";
 
-    // SHOCKWAVE LIGHT
-
+    // Shockwave licht
     for (const wave of shockwaves) {
         const x = wave.x - camera.x;
         const y = wave.y - camera.y;
 
         const gradient = dark.createRadialGradient(
-            x,
-            y,
-            0,
-            x,
-            y,
-            Math.max(1, wave.radius)
+            x, y, 0,
+            x, y, Math.max(1, wave.radius)
         );
 
-        const reveal = Math.min(
-            1,
-            wave.alpha * 1.5
-        );
+        const reveal = Math.min(1, wave.alpha * 1.5);
 
         gradient.addColorStop(
             0,
@@ -1552,49 +1371,25 @@ function drawNightEffect() {
         );
 
         dark.fillStyle = gradient;
-
         dark.beginPath();
-        dark.arc(
-            x,
-            y,
-            wave.radius,
-            0,
-            Math.PI * 2
-        );
+        dark.arc(x, y, wave.radius, 0, Math.PI * 2);
         dark.fill();
     }
 
-    // PERMANENT PLAYER LIGHT
-
+    // Kleine permanente lichtcirkel
     const px = player.x - camera.x;
     const py = player.y - camera.y;
 
     const playerLight = dark.createRadialGradient(
-        px,
-        py,
-        5,
-        px,
-        py,
-        PLAYER_LIGHT_RADIUS
+        px, py, 5,
+        px, py, PLAYER_LIGHT_RADIUS
     );
 
-    playerLight.addColorStop(
-        0,
-        "rgba(0,0,0,0.85)"
-    );
-
-    playerLight.addColorStop(
-        0.45,
-        "rgba(0,0,0,0.55)"
-    );
-
-    playerLight.addColorStop(
-        1,
-        "rgba(0,0,0,0)"
-    );
+    playerLight.addColorStop(0, "rgba(0,0,0,0.85)");
+    playerLight.addColorStop(0.45, "rgba(0,0,0,0.55)");
+    playerLight.addColorStop(1, "rgba(0,0,0,0)");
 
     dark.fillStyle = playerLight;
-
     dark.beginPath();
     dark.arc(
         px,
@@ -1622,13 +1417,7 @@ function drawWaves() {
         ctx.save();
 
         ctx.beginPath();
-        ctx.arc(
-            x,
-            y,
-            wave.radius,
-            0,
-            Math.PI * 2
-        );
+        ctx.arc(x, y, wave.radius, 0, Math.PI * 2);
 
         ctx.strokeStyle =
             `rgba(100,230,255,${wave.alpha})`;
@@ -1654,29 +1443,13 @@ function drawPlayer() {
     ctx.translate(x, y);
 
     ctx.fillStyle = "rgba(0,0,0,0.3)";
-
     ctx.beginPath();
-    ctx.ellipse(
-        0,
-        12,
-        15,
-        7,
-        0,
-        0,
-        Math.PI * 2
-    );
+    ctx.ellipse(0, 12, 15, 7, 0, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = "#e6e3d6";
-
     ctx.beginPath();
-    ctx.arc(
-        0,
-        0,
-        player.radius,
-        0,
-        Math.PI * 2
-    );
+    ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = "#65d9df";
@@ -1753,8 +1526,7 @@ function updateHUD() {
             "WASD: MOVE  |  SHIFT: SPRINT  |  SPACE: SHOCKWAVE";
     }
 
-    const coinsDisplay =
-        document.getElementById("coinsDisplay");
+    const coinsDisplay = document.getElementById("coinsDisplay");
 
     if (coinsDisplay) {
         coinsDisplay.textContent = `🪙 ${coins}`;
@@ -1834,13 +1606,16 @@ if (restartButton) {
 window.addEventListener("beforeunload", () => {
     if (!playerUID || !gameStarted) return;
 
+    // Bewaar direct lokaal als nood-backup.
+    // De echte save wordt tijdens het spelen elke 15 seconden
+    // naar Firestore geschreven.
     try {
         localStorage.setItem(
-            saveKey(),
+            "velora_backup_" + playerUID,
             JSON.stringify(makeSaveData())
         );
     } catch (error) {
-        console.error("Exit save error:", error);
+        console.error("Exit backup error:", error);
     }
 });
 
@@ -1899,4 +1674,4 @@ if (startButton) {
     startButton.textContent = "SIGN IN FIRST";
 }
 
-console.log("VÉLORA loaded successfully.");
+console.log("VÉLORA Firestore version loaded successfully.");
