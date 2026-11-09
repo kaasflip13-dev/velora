@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -59,6 +58,10 @@
                 ENTER THE WORLD
             </button>
 
+            <button id="newGameButton" class="menu-button">
+                NEW GAME
+            </button>
+
             <div class="objective">
                 FIND THE LOST MEMORIES
             </div>
@@ -68,6 +71,21 @@
             </div>
 
         </div>
+
+        <!-- LEADERBOARD -->
+        <section class="leaderboard">
+
+            <h2>GLOBAL LEADERBOARD</h2>
+
+            <p>THE EXPLORERS OF VÉLORA</p>
+
+            <div id="playersList">
+                <div class="leaderboard-loading">
+                    Loading explorers...
+                </div>
+            </div>
+
+        </section>
 
     </div>
 
@@ -108,6 +126,11 @@
             <div class="hud-right">
 
                 <div class="hud-panel">
+                    <span class="hud-label">COINS</span>
+                    <span id="coinsDisplay">🪙 0</span>
+                </div>
+
+                <div class="hud-panel">
                     <span class="hud-label">SHOCKWAVE</span>
                     <span id="cooldown">READY</span>
                 </div>
@@ -120,7 +143,7 @@
         <div id="hint" class="game-message"></div>
 
         <!-- MESSAGE -->
-        <div id="message" class="game-message"></div>
+        <div id="message" class="game-message" role="status" aria-live="polite"></div>
 
     </div>
 
@@ -143,22 +166,6 @@
         </div>
 
     </div>
-
-
-    <!-- LEADERBOARD -->
-    <section class="leaderboard">
-
-        <h2>GLOBAL LEADERBOARD</h2>
-
-        <p>THE EXPLORERS OF VÉLORA</p>
-
-        <div id="playersList">
-            <div class="leaderboard-loading">
-                Loading explorers...
-            </div>
-        </div>
-
-    </section>
 
 
     <!-- GAME SCRIPT -->
