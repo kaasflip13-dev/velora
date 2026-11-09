@@ -103,12 +103,54 @@ function setVisible(element, visible) {
 // ==========================================
 
 const LEVELS = [
-    { number: 1, name: "THE AWAKENING", enemies: 4 },
-    { number: 2, name: "FORGOTTEN FOREST", enemies: 5 },
-    { number: 3, name: "THE LOST PATH", enemies: 6 },
-    { number: 4, name: "SHADOWS RISING", enemies: 8 },
-    { number: 5, name: "THE FINAL MEMORY", enemies: 10 }
+    {
+        number: 1, name: "THE AWAKENING",
+        world: 2200, crystals: 3, enemies: 3, enemySpeed: 0.8,
+        light: 170, cooldown: 3, trees: 90, solidTrees: false,
+        walls: 0, hazards: 0, par: [50, 80, 120],
+        hint: "A small clearing. Find 3 memories, then reach the portal.",
+        theme: { ground: "#2d4a38", grid: "rgba(180,220,170,0.08)", border: "#829b85",
+                 tree: "#2c5e3f", treeHi: "#44804f", wall: "#4a5a55", night: "#02050b" }
+    },
+    {
+        number: 2, name: "FORGOTTEN FOREST",
+        world: 2800, crystals: 4, enemies: 5, enemySpeed: 1,
+        light: 140, cooldown: 4, trees: 300, solidTrees: true,
+        walls: 0, hazards: 0, par: [70, 110, 160],
+        hint: "The trees are thick here and block your way. Find 4 memories.",
+        theme: { ground: "#1d3326", grid: "rgba(140,200,140,0.06)", border: "#5f8a63",
+                 tree: "#1a4a2c", treeHi: "#2a6b3e", wall: "#3d4a40", night: "#010806" }
+    },
+    {
+        number: 3, name: "THE LOST PATH",
+        world: 3000, crystals: 5, enemies: 6, enemySpeed: 1.1,
+        light: 125, cooldown: 4, trees: 50, solidTrees: false,
+        walls: 20, hazards: 0, par: [90, 135, 190],
+        hint: "Ancient ruins block the way. Use the walls to lose your hunters.",
+        theme: { ground: "#26303f", grid: "rgba(150,180,230,0.09)", border: "#6c85b0",
+                 tree: "#2f4a52", treeHi: "#45707a", wall: "#6b7a99", night: "#02040b" }
+    },
+    {
+        number: 4, name: "SHADOWS RISING",
+        world: 3200, crystals: 5, enemies: 8, enemySpeed: 1.2,
+        light: 110, cooldown: 5, trees: 130, solidTrees: true,
+        walls: 0, hazards: 11, par: [100, 150, 210],
+        hint: "Toxic pools hide in the dark. Fire a shockwave to reveal them.",
+        theme: { ground: "#2a2038", grid: "rgba(190,150,240,0.07)", border: "#8a6cb5",
+                 tree: "#3b2a55", treeHi: "#5a3f80", wall: "#55486e", night: "#05020a" }
+    },
+    {
+        number: 5, name: "THE FINAL MEMORY",
+        world: 3600, crystals: 6, enemies: 10, enemySpeed: 1.35,
+        light: 95, cooldown: 5, trees: 90, solidTrees: true,
+        walls: 12, hazards: 12, par: [130, 190, 260],
+        hint: "The portal is sealed until all 6 memories are found. Survive.",
+        theme: { ground: "#35201f", grid: "rgba(255,150,120,0.07)", border: "#b5654f",
+                 tree: "#5a2a26", treeHi: "#82403a", wall: "#6e4a44", night: "#080203" }
+    }
 ];
+
+const T = () => getLevelConfig().theme;
 
 let currentLevel = 1;
 let unlockedLevel = 1;
@@ -123,9 +165,10 @@ function getLevelConfig() {
 }
 
 function starsForTime(seconds) {
-    if (seconds <= 10) return 3;
-    if (seconds <= 20) return 2;
-    if (seconds <= 30) return 1;
+    const par = getLevelConfig().par;
+    if (seconds <= par[0]) return 3;
+    if (seconds <= par[1]) return 2;
+    if (seconds <= par[2]) return 1;
     return 0;
 }
 
@@ -170,6 +213,7 @@ LEVELS.forEach(level => {
 
     button.textContent = `LEVEL ${level.number}`;
     button.type = "button";
+    button.title = level.name;
 
     button.style.cssText = `
         min-width:100px;
@@ -256,7 +300,15 @@ const levelTimerDisplay = timerPanel.querySelector("#levelTimerDisplay");
 
 const hudLeft = document.querySelector(".hud-left");
 
+const levelPanel = document.createElement("div");
+levelPanel.className = "hud-panel";
+levelPanel.innerHTML = `
+    <span class="hud-label">LEVEL</span>
+    <span id="currentLevelLabel"></span>
+`;
+
 if (hudLeft) {
+    hudLeft.appendChild(levelPanel);
     hudLeft.appendChild(timerPanel);
 }
 
@@ -614,13 +666,13 @@ function listenToPlayers() {
 // WORLD SETTINGS
 // ==========================================
 
-const WORLD_W = 3200;
-const WORLD_H = 3200;
+let WORLD_W = 3200;
+let WORLD_H = 3200;
 
-const MAX_CRYSTALS = 5;
-const PLAYER_LIGHT_RADIUS = 125;
+let MAX_CRYSTALS = 5;
+let PLAYER_LIGHT_RADIUS = 125;
 
-const WAVE_COOLDOWN = 4;
+let WAVE_COOLDOWN = 4;
 const WAVE_DURATION = 2;
 
 let camera = { x: 0, y: 0 };
@@ -641,6 +693,9 @@ let crystalsCollected = 0;
 let shockwaves = [];
 let particles = [];
 let enemies = [];
+let walls = [];
+let hazards = [];
+let inHazard = false;
 let crystals = [];
 let trees = [];
 let rocks = [];
@@ -665,8 +720,58 @@ const portal = {
 // HELPERS
 // ==========================================
 
+let rng = Math.random;
+
 function random(min, max) {
-    return Math.random() * (max - min) + min;
+    return rng() * (max - min) + min;
+}
+
+function mulberry32(seed) {
+    return function () {
+        seed |= 0;
+        seed = (seed + 0x6D2B79F5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function distToRect(x, y, r) {
+    return Math.hypot(
+        x - clamp(x, r.x, r.x + r.w),
+        y - clamp(y, r.y, r.y + r.h)
+    );
+}
+
+function pushOutRect(o, r, radius) {
+    const cx = clamp(o.x, r.x, r.x + r.w);
+    const cy = clamp(o.y, r.y, r.y + r.h);
+    const dx = o.x - cx;
+    const dy = o.y - cy;
+    const d = Math.hypot(dx, dy);
+
+    if (d >= radius) return;
+
+    if (d === 0) {
+        o.y = r.y - radius;
+        return;
+    }
+
+    o.x = cx + (dx / d) * radius;
+    o.y = cy + (dy / d) * radius;
+}
+
+function applyLevelConfig() {
+    const c = getLevelConfig();
+
+    WORLD_W = c.world;
+    WORLD_H = c.world;
+    MAX_CRYSTALS = c.crystals;
+    PLAYER_LIGHT_RADIUS = c.light;
+    WAVE_COOLDOWN = c.cooldown;
+
+    portal.x = WORLD_W - 180;
+    portal.y = WORLD_H - 180;
 }
 
 function distance(a, b) {
@@ -866,44 +971,25 @@ function applyCrystalSave(data) {
 // ==========================================
 
 function generateWorld() {
+    const cfg = getLevelConfig();
+    const startPoint = { x: WORLD_W / 2, y: WORLD_H / 2 };
+
     trees = [];
     rocks = [];
     plants = [];
     crystals = [];
     enemies = [];
+    walls = [];
+    hazards = [];
     shockwaves = [];
     particles = [];
 
-    for (let i = 0; i < 190; i++) {
-        const x = random(70, WORLD_W - 70);
-        const y = random(70, WORLD_H - 70);
+    // Fixed layout per level: same seed = same level every time.
+    rng = mulberry32(cfg.number * 7919 + 13);
 
-        if (Math.hypot(x - player.x, y - player.y) < 100) continue;
-
-        trees.push({ x, y, size: random(13, 27) });
-    }
-
-    for (let i = 0; i < 140; i++) {
-        rocks.push({
-            x: random(60, WORLD_W - 60),
-            y: random(60, WORLD_H - 60),
-            size: random(8, 19)
-        });
-    }
-
-    for (let i = 0; i < 100; i++) {
-        plants.push({
-            x: random(60, WORLD_W - 60),
-            y: random(60, WORLD_H - 60),
-            size: random(5, 12),
-            color: Math.random() > 0.5 ? "#477e75" : "#596b9c",
-            pulse: random(0, 6)
-        });
-    }
-
+    // Crystals
     for (let i = 0; i < MAX_CRYSTALS; i++) {
-        let x, y;
-        let attempts = 0;
+        let x, y, attempts = 0;
 
         do {
             x = random(180, WORLD_W - 180);
@@ -911,40 +997,120 @@ function generateWorld() {
             attempts++;
         } while (
             (
-                Math.hypot(x - player.x, y - player.y) < 300 ||
-                Math.hypot(x - portal.x, y - portal.y) < 180
-            ) && attempts < 100
+                distance({ x, y }, startPoint) < 400 ||
+                distance({ x, y }, portal) < 300 ||
+                crystals.some(c => Math.hypot(c.x - x, c.y - y) < 350)
+            ) && attempts < 200
         );
 
-        crystals.push({
-            x,
-            y,
-            radius: 11,
-            collected: false,
+        crystals.push({ x, y, radius: 11, collected: false, pulse: random(0, 6) });
+    }
+
+    // Toxic pools
+    for (let i = 0; i < cfg.hazards; i++) {
+        let x, y, attempts = 0;
+        const radius = random(55, 95);
+
+        do {
+            x = random(150, WORLD_W - 150);
+            y = random(150, WORLD_H - 150);
+            attempts++;
+        } while (
+            (
+                distance({ x, y }, startPoint) < radius + 220 ||
+                distance({ x, y }, portal) < radius + 160 ||
+                crystals.some(c => Math.hypot(c.x - x, c.y - y) < radius + 70)
+            ) && attempts < 200
+        );
+
+        hazards.push({ x, y, radius, pulse: random(0, 6) });
+    }
+
+    // Ruin walls
+    for (let i = 0; i < cfg.walls; i++) {
+        let rect, attempts = 0;
+
+        do {
+            const horizontal = rng() > 0.5;
+            const length = random(280, 560);
+
+            rect = {
+                x: random(100, WORLD_W - 100 - length),
+                y: random(100, WORLD_H - 100 - length),
+                w: horizontal ? length : 30,
+                h: horizontal ? 30 : length
+            };
+
+            attempts++;
+        } while (
+            (
+                distToRect(startPoint.x, startPoint.y, rect) < 170 ||
+                distToRect(portal.x, portal.y, rect) < 170 ||
+                crystals.some(c => distToRect(c.x, c.y, rect) < 90) ||
+                walls.some(w =>
+                    rect.x < w.x + w.w + 90 && rect.x + rect.w > w.x - 90 &&
+                    rect.y < w.y + w.h + 90 && rect.y + rect.h > w.y - 90
+                )
+            ) && attempts < 200
+        );
+
+        if (attempts < 200) walls.push(rect);
+    }
+
+    // Trees
+    for (let i = 0; i < cfg.trees; i++) {
+        const x = random(70, WORLD_W - 70);
+        const y = random(70, WORLD_H - 70);
+        const size = random(13, 27);
+
+        if (distance({ x, y }, startPoint) < 110) continue;
+        if (distance({ x, y }, portal) < 110) continue;
+        if (crystals.some(c => Math.hypot(c.x - x, c.y - y) < 70)) continue;
+        if (walls.some(w => distToRect(x, y, w) < size + 20)) continue;
+
+        trees.push({ x, y, size });
+    }
+
+    for (let i = 0; i < 140 * (WORLD_W / 3200); i++) {
+        rocks.push({
+            x: random(60, WORLD_W - 60),
+            y: random(60, WORLD_H - 60),
+            size: random(8, 19)
+        });
+    }
+
+    for (let i = 0; i < 100 * (WORLD_W / 3200); i++) {
+        plants.push({
+            x: random(60, WORLD_W - 60),
+            y: random(60, WORLD_H - 60),
+            size: random(5, 12),
+            color: rng() > 0.5 ? "#477e75" : "#596b9c",
             pulse: random(0, 6)
         });
     }
 
-    const enemyCount = getLevelConfig().enemies;
+    // Enemies are random each run
+    rng = Math.random;
 
-    for (let i = 0; i < enemyCount; i++) {
-        let x, y;
-        let attempts = 0;
+    for (let i = 0; i < cfg.enemies; i++) {
+        let x, y, attempts = 0;
 
         do {
             x = random(100, WORLD_W - 100);
             y = random(100, WORLD_H - 100);
             attempts++;
         } while (
-            Math.hypot(x - player.x, y - player.y) < 350 &&
-            attempts < 100
+            (
+                Math.hypot(x - startPoint.x, y - startPoint.y) < 400 ||
+                walls.some(w => distToRect(x, y, w) < 50)
+            ) && attempts < 200
         );
 
         enemies.push({
             x,
             y,
             radius: 15,
-            speed: random(35, 58) + currentLevel * 3,
+            speed: (random(35, 58) + cfg.number * 3) * cfg.enemySpeed,
             angle: random(0, Math.PI * 2),
             alert: false,
             stunned: 0,
@@ -974,6 +1140,9 @@ async function startGame(newGame = false) {
         gameStarted = false;
         finishingLevel = false;
         collectingCrystal = false;
+        inHazard = false;
+
+        applyLevelConfig();
 
         player.x = WORLD_W / 2;
         player.y = WORLD_H / 2;
@@ -1020,7 +1189,9 @@ async function startGame(newGame = false) {
 
         if (hint) {
             hint.textContent =
-                "WASD / ARROWS: MOVE  |  SHIFT: SPRINT  |  SPACE: SHOCKWAVE";
+                "WASD / ARROWS: MOVE  |  SHIFT: SPRINT  |  SPACE: SHOCKWAVE\n" +
+                getLevelConfig().hint;
+            hint.style.whiteSpace = "pre-line";
         }
 
         resizeCanvas();
@@ -1035,8 +1206,9 @@ async function startGame(newGame = false) {
 
         frameId = requestAnimationFrame(gameLoop);
 
+        showMessage(`LEVEL ${currentLevel} — ${getLevelConfig().name}`);
+
         if (newGame) {
-            showMessage(`LEVEL ${currentLevel} — ${getLevelConfig().name}`);
             await saveGame();
         } else if (loadFailed) {
             showMessage("SAVE COULD NOT LOAD");
@@ -1200,6 +1372,34 @@ function updatePlayer(dt) {
         Math.min(WORLD_H - player.radius, player.y)
     );
 
+    // Walls and (on forest levels) trees are solid
+    for (const wall of walls) pushOutRect(player, wall, player.radius);
+
+    if (getLevelConfig().solidTrees) {
+        for (const tree of trees) {
+            const minDist = tree.size * 0.5 + player.radius;
+            const dx = player.x - tree.x;
+            const dy = player.y - tree.y;
+            const d = Math.hypot(dx, dy);
+
+            if (d < minDist && d > 0) {
+                player.x = tree.x + (dx / d) * minDist;
+                player.y = tree.y + (dy / d) * minDist;
+            }
+        }
+    }
+
+    // Toxic pools
+    const standingIn = hazards.some(h => distance(player, h) < h.radius);
+
+    if (standingIn) {
+        player.health -= 14 * dt;
+
+        if (!inHazard) showMessage("TOXIC POOL — GET OUT");
+    }
+
+    inHazard = standingIn;
+
     player.shockCooldown = Math.max(0, player.shockCooldown - dt);
 }
 
@@ -1243,6 +1443,8 @@ function updateEnemies(dt) {
             enemy.x += Math.cos(enemy.angle) * enemy.speed * 0.3 * dt;
             enemy.y += Math.sin(enemy.angle) * enemy.speed * 0.3 * dt;
         }
+
+        for (const wall of walls) pushOutRect(enemy, wall, enemy.radius);
 
         enemy.x = Math.max(20, Math.min(WORLD_W - 20, enemy.x));
         enemy.y = Math.max(20, Math.min(WORLD_H - 20, enemy.y));
@@ -1390,12 +1592,15 @@ function update(dt) {
 // ==========================================
 
 function drawWorld() {
-    ctx.fillStyle = "#263b31";
+    const theme = T();
+
+    ctx.fillStyle = "#05070b";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    ctx.fillStyle = theme.ground;
     ctx.fillRect(-camera.x, -camera.y, WORLD_W, WORLD_H);
 
-    ctx.strokeStyle = "rgba(180,210,170,0.08)";
+    ctx.strokeStyle = theme.grid;
     ctx.lineWidth = 1;
 
     for (let x = -camera.x % 80; x < canvas.width; x += 80) {
@@ -1412,9 +1617,57 @@ function drawWorld() {
         ctx.stroke();
     }
 
-    ctx.strokeStyle = "#829b85";
+    ctx.strokeStyle = theme.border;
     ctx.lineWidth = 5;
     ctx.strokeRect(-camera.x, -camera.y, WORLD_W, WORLD_H);
+}
+
+function drawWalls() {
+    ctx.fillStyle = T().wall;
+
+    for (const wall of walls) {
+        const x = wall.x - camera.x;
+        const y = wall.y - camera.y;
+
+        if (
+            x > canvas.width || y > canvas.height ||
+            x + wall.w < 0 || y + wall.h < 0
+        ) continue;
+
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fillRect(x + 4, y + 6, wall.w, wall.h);
+
+        ctx.fillStyle = T().wall;
+        ctx.fillRect(x, y, wall.w, wall.h);
+
+        ctx.strokeStyle = "rgba(255,255,255,0.18)";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, wall.w, wall.h);
+    }
+}
+
+function drawHazards() {
+    for (const h of hazards) {
+        const x = h.x - camera.x;
+        const y = h.y - camera.y;
+
+        if (
+            x < -h.radius || y < -h.radius ||
+            x > canvas.width + h.radius || y > canvas.height + h.radius
+        ) continue;
+
+        h.pulse += 0.03;
+
+        const grad = ctx.createRadialGradient(x, y, 4, x, y, h.radius);
+        grad.addColorStop(0, "rgba(170,60,255,0.85)");
+        grad.addColorStop(0.7, "rgba(110,40,190,0.6)");
+        grad.addColorStop(1, "rgba(80,20,150,0)");
+
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(x, y, h.radius + Math.sin(h.pulse) * 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
 }
 
 // ==========================================
@@ -1440,12 +1693,12 @@ function drawTrees() {
         ctx.fillStyle = "#493a2d";
         ctx.fillRect(x - 5, y, 10, tree.size);
 
-        ctx.fillStyle = "#244f36";
+        ctx.fillStyle = T().tree;
         ctx.beginPath();
         ctx.arc(x, y, tree.size, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = "#376a43";
+        ctx.fillStyle = T().treeHi;
         ctx.beginPath();
         ctx.arc(x - 5, y - 5, tree.size * 0.65, 0, Math.PI * 2);
         ctx.fill();
@@ -1578,6 +1831,7 @@ function drawPortal() {
     ctx.save();
     ctx.translate(x, y);
 
+    ctx.globalAlpha = crystalsCollected >= MAX_CRYSTALS ? 1 : 0.3;
     ctx.shadowBlur = 25;
     ctx.shadowColor = "#a56bff";
     ctx.strokeStyle = "#c49aff";
@@ -1657,7 +1911,7 @@ function drawNightEffect() {
     dark.clearRect(0, 0, darknessCanvas.width, darknessCanvas.height);
 
     dark.globalCompositeOperation = "source-over";
-    dark.fillStyle = "#02050b";
+    dark.fillStyle = T().night;
     dark.fillRect(0, 0, darknessCanvas.width, darknessCanvas.height);
 
     dark.globalCompositeOperation = "destination-out";
@@ -1814,7 +2068,7 @@ function updateHUD() {
     const levelLabel = document.getElementById("currentLevelLabel");
 
     if (levelLabel) {
-        levelLabel.textContent = `LEVEL ${currentLevel}`;
+        levelLabel.textContent = `${currentLevel} — ${getLevelConfig().name}`;
     }
 }
 
@@ -2036,6 +2290,8 @@ function render() {
     drawTrees();
     drawRocks();
     drawPlants();
+    drawHazards();
+    drawWalls();
     drawPortal();
     drawCrystals();
     drawEnemies();
@@ -2095,4 +2351,4 @@ if (newGameButton) {
 updateLevelSelector();
 updateHUD();
 
-console.log("VÉLORA — 5 LEVELS + STARS SYSTEM LOADED");
+console.log("VÉLORA — 5 UNIQUE LEVELS LOADED");
