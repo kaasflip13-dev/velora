@@ -158,6 +158,7 @@ levelTitle.style.cssText = `
     text-align:center;
     color:#8fdfff;
     margin-top:22px;
+    width:100%;
 `;
 
 levelSelector.appendChild(levelTitle);
@@ -673,7 +674,7 @@ function distance(a, b) {
 }
 
 function clamp(value, min, max) {
-    return Math.max(0, Math.min(max, value));
+    return Math.max(min, Math.min(max, value));
 }
 
 function toNumber(value, fallback) {
@@ -1788,11 +1789,11 @@ function updateHUD() {
     }
 
     if (healthBar) {
-        healthBar.style.width = clamp(player.health, 100) + "%";
+        healthBar.style.width = clamp(player.health, 0, 100) + "%";
     }
 
     if (energyBar) {
-        energyBar.style.width = clamp(player.energy, 100) + "%";
+        energyBar.style.width = clamp(player.energy, 0, 100) + "%";
     }
 
     if (cooldownElement) {
@@ -2062,7 +2063,7 @@ function gameLoop(timestamp) {
 
     if (!gameStarted) return;
 
-    const dt = clamp((timestamp - lastTime) / 1000, 0.04);
+    const dt = clamp((timestamp - lastTime) / 1000, 0, 0.04);
 
     lastTime = timestamp;
 
