@@ -3,7 +3,7 @@
 // FIREBASE FIRESTORE + COINS + 2D WORLD
 // ==========================================
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
 
 import {
     getAuth,
@@ -13,7 +13,7 @@ import {
     onAuthStateChanged,
     setPersistence,
     browserLocalPersistence
-} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
 import {
     getFirestore,
@@ -28,7 +28,7 @@ import {
     limit,
     onSnapshot,
     serverTimestamp
-} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 
 // ==========================================
 // FIREBASE
@@ -54,11 +54,9 @@ provider.setCustomParameters({
     prompt: "select_account"
 });
 
-try {
-    await setPersistence(auth, browserLocalPersistence);
-} catch (error) {
+setPersistence(auth, browserLocalPersistence).catch(error => {
     console.error("Persistence error:", error);
-}
+});
 
 // ==========================================
 // HTML ELEMENTS
@@ -67,13 +65,14 @@ try {
 const canvas = document.getElementById("game");
 
 if (!canvas) {
-    throw new Error('Canvas met id="game" niet gevonden in index.html.');
+    throw new Error('Canvas with id="game" not found in index.html.');
 }
 
 const ctx = canvas.getContext("2d");
 
 const menu = document.getElementById("menu");
 const startButton = document.getElementById("startButton");
+const newGameButton = document.getElementById("newGameButton");
 
 const loginArea = document.getElementById("loginArea");
 const googleButton = document.getElementById("googleButton");
@@ -89,13 +88,20 @@ const playersList = document.getElementById("playersList");
 const gameUI = document.getElementById("gameUI");
 const crystalCount = document.getElementById("crystalCount");
 const cooldownElement = document.getElementById("cooldown");
-const cooldownBar = document.getElementById("cooldownBar");
-const cooldownText = document.getElementById("cooldownText");
+const healthBar = document.getElementById("healthBar");
+const energyBar = document.getElementById("energyBar");
+const coinsDisplay = document.getElementById("coinsDisplay");
 const hint = document.getElementById("hint");
 const message = document.getElementById("message");
 
 const winScreen = document.getElementById("winScreen");
 const restartButton = document.getElementById("restartButton");
+
+// The HTML "hidden" attribute is forced to display:none in the CSS,
+// so visibility is always toggled through this helper.
+function setVisible(element, visible) {
+    if (element) element.hidden = !visible;
+}
 
 // ==========================================
 // ACCOUNT
@@ -105,11 +111,28 @@ let currentUser = null;
 let playerUID = null;
 let playersUnsubscribe = null;
 let gameStarted = false;
+let starting = false;
+let frameId = null;
 let coins = 0;
 
 // ==========================================
 // GOOGLE LOGIN
 // ==========================================
+
+function resetGoogleButton() {
+    if (!googleButton) return;
+
+    googleButton.disabled = false;
+    googleButton.textContent = "SIGN IN WITH GOOGLE";
+}
+
+const LOGIN_ERRORS = {
+    "auth/popup-closed-by-user": "Sign-in was cancelled.",
+    "auth/cancelled-popup-request": "Sign-in was cancelled.",
+    "auth/popup-blocked": "Your browser blocked the sign-in popup. Allow popups for this page and try again.",
+    "auth/network-request-failed": "Network error. Check your connection and try again.",
+    "auth/unauthorized-domain": "This domain is not authorized in Firebase Authentication."
+};
 
 async function loginWithGoogle() {
     if (googleButton) {
@@ -125,20 +148,18 @@ async function loginWithGoogle() {
         await signInWithPopup(auth, provider);
 
         if (loginStatus) {
-            loginStatus.textContent = "Signed in successfully!";
+            loginStatus.textContent = "";
         }
     } catch (error) {
         console.error("Google login error:", error);
 
         if (loginStatus) {
             loginStatus.textContent =
+                LOGIN_ERRORS[error.code] ||
                 `${error.code || "Error"}: ${error.message || "Could not sign in."}`;
         }
 
-        if (googleButton) {
-            googleButton.disabled = false;
-            googleButton.textContent = "SIGN IN WITH GOOGLE";
-        }
+        resetGoogleButton();
     }
 }
 
@@ -151,11 +172,12 @@ if (googleButton) {
 // ==========================================
 
 async function logout() {
-    if (gameStarted) {
-        await saveGame();
-    }
-
     try {
+        if (gameStarted) {
+            await saveGame();
+        }
+
+        stopLoop();
         gameStarted = false;
         keys = {};
 
@@ -180,8 +202,9 @@ onAuthStateChanged(auth, async user => {
         currentUser = user;
         playerUID = user.uid;
 
-        if (loginArea) loginArea.style.display = "none";
-        if (loggedInArea) loggedInArea.style.display = "block";
+        setVisible(loginArea, false);
+        setVisible(loggedInArea, true);
+        resetGoogleButton();
 
         if (playerName) {
             playerName.textContent = user.displayName || "VÉLORA Player";
@@ -196,6 +219,10 @@ onAuthStateChanged(auth, async user => {
             startButton.textContent = "ENTER THE WORLD";
         }
 
+        if (newGameButton) {
+            newGameButton.disabled = false;
+        }
+
         await savePublicProfile(user);
         listenToPlayers();
 
@@ -204,12 +231,21 @@ onAuthStateChanged(auth, async user => {
         playerUID = null;
         coins = 0;
 
-        if (loginArea) loginArea.style.display = "block";
-        if (loggedInArea) loggedInArea.style.display = "none";
+        stopLoop();
+        gameStarted = false;
+        keys = {};
+
+        setVisible(loginArea, true);
+        setVisible(loggedInArea, false);
+        resetGoogleButton();
 
         if (startButton) {
             startButton.disabled = true;
             startButton.textContent = "SIGN IN FIRST";
+        }
+
+        if (newGameButton) {
+            newGameButton.disabled = true;
         }
 
         if (playersList) {
@@ -221,7 +257,6 @@ onAuthStateChanged(auth, async user => {
             playersUnsubscribe = null;
         }
 
-        gameStarted = false;
         showMenu();
     }
 });
@@ -244,6 +279,7 @@ async function savePublicProfile(user) {
     try {
         const profileRef = publicUserRef(user.uid);
         const snapshot = await getDoc(profileRef);
+        const exists = snapshot.exists();
 
         const profileData = {
             displayName: user.displayName || "VÉLORA Player",
@@ -251,7 +287,7 @@ async function savePublicProfile(user) {
             updatedAt: serverTimestamp()
         };
 
-        if (!snapshot.exists()) {
+        if (!exists) {
             profileData.coins = 0;
             profileData.highscore = 0;
             profileData.createdAt = serverTimestamp();
@@ -259,12 +295,11 @@ async function savePublicProfile(user) {
 
         await setDoc(profileRef, profileData, { merge: true });
 
-        const updated = await getDoc(profileRef);
-        coins = Math.max(0, Number(updated.data()?.coins) || 0);
+        coins = exists
+            ? Math.max(0, Number(snapshot.data()?.coins) || 0)
+            : 0;
 
         updateHUD();
-
-        console.log("Firestore profile loaded. Coins:", coins);
 
     } catch (error) {
         console.error("Firestore profile error:", error);
@@ -303,21 +338,35 @@ function listenToPlayers() {
             snapshot.docs.forEach((playerDoc, index) => {
                 const data = playerDoc.data() || {};
 
-                const item = document.createElement("div");
-                item.className = "player-item";
+                const row = document.createElement("div");
+                row.className = "leaderboard-row";
+
+                if (playerDoc.id === playerUID) {
+                    row.classList.add("is-you");
+                }
+
+                const info = document.createElement("div");
+                info.className = "leaderboard-player";
+
+                const rank = document.createElement("span");
+                rank.className = "leaderboard-rank";
+                rank.textContent = `#${index + 1}`;
 
                 const name = document.createElement("span");
-                name.textContent =
-                    `${index + 1}. ${data.displayName || "VÉLORA Player"}`;
+                name.className = "leaderboard-name";
+                name.textContent = data.displayName || "VÉLORA Player";
 
                 const amount = document.createElement("span");
+                amount.className = "leaderboard-coins";
                 amount.textContent =
                     `🪙 ${Math.max(0, Number(data.coins) || 0)}`;
 
-                item.appendChild(name);
-                item.appendChild(amount);
+                info.appendChild(rank);
+                info.appendChild(name);
+                row.appendChild(info);
+                row.appendChild(amount);
 
-                playersList.appendChild(item);
+                playersList.appendChild(row);
             });
         },
         error => {
@@ -423,6 +472,15 @@ resizeCanvas();
 // FIRESTORE SAVE SYSTEM
 // ==========================================
 
+function toNumber(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+}
+
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
 function makeSaveData() {
     return {
         x: player.x,
@@ -430,6 +488,11 @@ function makeSaveData() {
         health: player.health,
         energy: player.energy,
         crystals: crystalsCollected,
+        crystalList: crystals.map(crystal => ({
+            x: Math.round(crystal.x),
+            y: Math.round(crystal.y),
+            collected: crystal.collected
+        })),
         savedAt: Date.now()
     };
 }
@@ -449,67 +512,116 @@ async function saveGame() {
             { merge: true }
         );
 
-        console.log("Game saved to Firestore!");
-
     } catch (error) {
         console.error("Firestore save error:", error);
         showMessage("SAVE FAILED");
     }
 }
 
+// Resets the stored progress (used after winning) so the next
+// "ENTER THE WORLD" does not drop the player back on the portal.
+async function clearSave() {
+    if (!playerUID) return;
+
+    try {
+        localStorage.removeItem("velora_backup_" + playerUID);
+    } catch (error) {
+        // ignore
+    }
+
+    try {
+        await setDoc(
+            privateUserRef(playerUID),
+            {
+                save: {
+                    x: WORLD_W / 2,
+                    y: WORLD_H / 2,
+                    health: 100,
+                    energy: 100,
+                    crystals: 0,
+                    crystalList: [],
+                    savedAt: Date.now()
+                },
+                updatedAt: serverTimestamp()
+            },
+            { merge: true }
+        );
+    } catch (error) {
+        console.error("Firestore clear-save error:", error);
+    }
+}
+
+// Emergency backup written on page close (see beforeunload).
+// Only used when it is newer than the Firestore save.
+function readBackup() {
+    if (!playerUID) return null;
+
+    const storageKey = "velora_backup_" + playerUID;
+
+    try {
+        const raw = localStorage.getItem(storageKey);
+        localStorage.removeItem(storageKey);
+
+        return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+// Returns { data, failed }. data is the save object or null.
 async function loadGame() {
-    if (!playerUID) return false;
+    if (!playerUID) return { data: null, failed: false };
+
+    let data = null;
+    let failed = false;
 
     try {
         const snapshot = await getDoc(privateUserRef(playerUID));
-
-        if (!snapshot.exists()) {
-            console.log("No Firestore save found.");
-            return false;
-        }
-
-        const data = snapshot.data()?.save;
-
-        if (!data) {
-            console.log("No game save found.");
-            return false;
-        }
-
-        player.x = Math.max(
-            player.radius,
-            Math.min(WORLD_W - player.radius, data.x ?? player.x)
-        );
-
-        player.y = Math.max(
-            player.radius,
-            Math.min(WORLD_H - player.radius, data.y ?? player.y)
-        );
-
-        player.health = Math.max(
-            1,
-            Math.min(100, data.health ?? 100)
-        );
-
-        player.energy = Math.max(
-            0,
-            Math.min(100, data.energy ?? 100)
-        );
-
-        crystalsCollected = Math.max(
-            0,
-            Math.min(MAX_CRYSTALS, data.crystals ?? 0)
-        );
-
-        updateHUD();
-
-        console.log("Game loaded from Firestore!");
-
-        return true;
-
+        data = snapshot.exists() ? (snapshot.data()?.save || null) : null;
     } catch (error) {
         console.error("Firestore load error:", error);
-        showMessage("SAVE COULD NOT LOAD");
-        return false;
+        failed = true;
+    }
+
+    const backup = readBackup();
+
+    if (backup && (!data || toNumber(backup.savedAt, 0) > toNumber(data.savedAt, 0))) {
+        data = backup;
+    }
+
+    return { data, failed };
+}
+
+function applySavedPlayer(data) {
+    player.x = clamp(toNumber(data.x, player.x), player.radius, WORLD_W - player.radius);
+    player.y = clamp(toNumber(data.y, player.y), player.radius, WORLD_H - player.radius);
+    player.health = clamp(toNumber(data.health, 100), 1, 100);
+    player.energy = clamp(toNumber(data.energy, 100), 0, 100);
+
+    crystalsCollected = clamp(
+        Math.floor(toNumber(data.crystals, 0)),
+        0,
+        MAX_CRYSTALS
+    );
+}
+
+// Runs after generateWorld(): restores which crystals were already taken,
+// so reloading a save cannot be used to collect (and be paid for) them again.
+function applyCrystalSave(data) {
+    if (Array.isArray(data.crystalList) && data.crystalList.length === MAX_CRYSTALS) {
+        crystals = data.crystalList.map(item => ({
+            x: clamp(toNumber(item.x, WORLD_W / 2), 0, WORLD_W),
+            y: clamp(toNumber(item.y, WORLD_H / 2), 0, WORLD_H),
+            radius: 11,
+            collected: Boolean(item.collected),
+            pulse: random(0, 6)
+        }));
+
+        crystalsCollected = crystals.filter(crystal => crystal.collected).length;
+    } else {
+        crystals.forEach((crystal, index) => {
+            crystal.collected = index < crystalsCollected;
+        });
     }
 }
 
@@ -616,59 +728,99 @@ function generateWorld() {
 // ==========================================
 
 async function startGame(newGame = false) {
-    if (!currentUser || currentUser.isAnonymous) return;
+    if (!currentUser || currentUser.isAnonymous || starting) return;
+
+    starting = true;
 
     if (startButton) {
         startButton.disabled = true;
         startButton.textContent = "LOADING...";
     }
 
-    gameStarted = false;
-
-    player.x = WORLD_W / 2;
-    player.y = WORLD_H / 2;
-    player.health = 100;
-    player.energy = 100;
-    player.shockCooldown = 0;
-
-    crystalsCollected = 0;
-
-    portal.x = WORLD_W - 180;
-    portal.y = WORLD_H - 180;
-
-    shockwaves = [];
-    particles = [];
-
-    generateWorld();
-
-    if (!newGame) {
-        await loadGame();
+    if (newGameButton) {
+        newGameButton.disabled = true;
     }
 
-    keys = {};
+    try {
+        stopLoop();
+        gameStarted = false;
 
-    if (menu) menu.style.display = "none";
-    if (gameUI) gameUI.style.display = "block";
-    if (winScreen) winScreen.style.display = "none";
-    if (message) message.style.display = "none";
+        player.x = WORLD_W / 2;
+        player.y = WORLD_H / 2;
+        player.health = 100;
+        player.energy = 100;
+        player.shockCooldown = 0;
 
-    gameStarted = true;
-    lastTime = performance.now();
-    autosaveTimer = 0;
+        crystalsCollected = 0;
 
-    updateCamera();
-    updateHUD();
+        portal.x = WORLD_W - 180;
+        portal.y = WORLD_H - 180;
 
-    if (newGame) {
-        await saveGame();
-        showMessage("A NEW JOURNEY BEGINS");
-    }
+        let saved = null;
+        let loadFailed = false;
 
-    requestAnimationFrame(gameLoop);
+        if (!newGame) {
+            const result = await loadGame();
 
-    if (startButton) {
-        startButton.disabled = false;
-        startButton.textContent = "ENTER THE WORLD";
+            saved = result.data;
+            loadFailed = result.failed;
+
+            if (saved) applySavedPlayer(saved);
+        }
+
+        // The player position is known now, so enemies and crystals
+        // are never generated on top of the player.
+        generateWorld();
+
+        if (saved) applyCrystalSave(saved);
+
+        // The user may have signed out while the save was loading.
+        if (!currentUser) return;
+
+        keys = {};
+
+        setVisible(menu, false);
+        setVisible(winScreen, false);
+        setVisible(gameUI, true);
+
+        if (message) message.style.display = "none";
+
+        if (hint) {
+            hint.textContent =
+                "WASD / ARROWS: MOVE  |  SHIFT: SPRINT  |  SPACE: SHOCKWAVE";
+        }
+
+        resizeCanvas();
+
+        gameStarted = true;
+        lastTime = performance.now();
+        autosaveTimer = 0;
+
+        updateCamera();
+        updateHUD();
+
+        frameId = requestAnimationFrame(gameLoop);
+
+        if (newGame) {
+            showMessage("A NEW JOURNEY BEGINS");
+            await saveGame();
+        } else if (loadFailed) {
+            showMessage("SAVE COULD NOT LOAD");
+        }
+
+    } finally {
+        starting = false;
+
+        if (currentUser) {
+            if (startButton) {
+                startButton.disabled = false;
+                startButton.textContent = "ENTER THE WORLD";
+            }
+
+            if (newGameButton) {
+                newGameButton.disabled = false;
+            }
+        }
     }
 }
 
@@ -682,51 +834,42 @@ if (startButton) {
     });
 }
 
-const newGameButton = document.createElement("button");
+if (newGameButton) {
+    newGameButton.addEventListener("click", async () => {
+        if (!currentUser) {
+            if (loginStatus) loginStatus.textContent = "Sign in first.";
+            return;
+        }
 
-newGameButton.id = "newGameButton";
-newGameButton.textContent = "NEW GAME";
-newGameButton.style.marginTop = "12px";
-newGameButton.style.padding = "14px 30px";
-newGameButton.style.background = "#18252b";
-newGameButton.style.color = "#78eaff";
-newGameButton.style.border = "1px solid #78eaff";
-newGameButton.style.borderRadius = "6px";
-newGameButton.style.fontSize = "15px";
-newGameButton.style.fontWeight = "bold";
-newGameButton.style.cursor = "pointer";
-newGameButton.style.letterSpacing = "2px";
+        const confirmed = confirm(
+            "Start a NEW GAME? Your old save will be replaced permanently."
+        );
 
-if (menu) {
-    menu.appendChild(newGameButton);
+        if (!confirmed) return;
+
+        await startGame(true);
+    });
 }
-
-newGameButton.addEventListener("click", async () => {
-    if (!currentUser) {
-        if (loginStatus) loginStatus.textContent = "Sign in first.";
-        return;
-    }
-
-    const confirmed = confirm(
-        "Start a NEW GAME? Your old save will be replaced permanently."
-    );
-
-    if (!confirmed) return;
-
-    await startGame(true);
-});
 
 // ==========================================
 // INPUT
 // ==========================================
 
+const GAME_KEYS = new Set([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"]);
+
 window.addEventListener("keydown", event => {
+    if (!gameStarted) return;
+
     const key = event.key.toLowerCase();
 
     keys[key] = true;
 
-    if (event.code === "Space") {
+    // Stop the page from scrolling / clicking buttons while playing.
+    if (GAME_KEYS.has(key)) {
         event.preventDefault();
+    }
+
+    if (event.code === "Space" && !event.repeat) {
         useShockwave();
     }
 });
@@ -1488,18 +1631,17 @@ function drawParticles() {
 function updateHUD() {
     if (crystalCount) {
         crystalCount.textContent =
-            `${crystalsCollected}/${MAX_CRYSTALS}`;
+            `${crystalsCollected} / ${MAX_CRYSTALS}`;
     }
 
-    const healthBar = document.getElementById("healthBar");
-    const energyBar = document.getElementById("energyBar");
-
     if (healthBar) {
-        healthBar.style.width = player.health + "%";
+        healthBar.style.width =
+            clamp(player.health, 0, 100) + "%";
     }
 
     if (energyBar) {
-        energyBar.style.width = player.energy + "%";
+        energyBar.style.width =
+            clamp(player.energy, 0, 100) + "%";
     }
 
     if (cooldownElement) {
@@ -1508,25 +1650,6 @@ function updateHUD() {
                 ? player.shockCooldown.toFixed(1) + "s"
                 : "READY";
     }
-
-    if (cooldownText) {
-        cooldownText.textContent =
-            player.shockCooldown > 0
-                ? player.shockCooldown.toFixed(1) + "s"
-                : "READY";
-    }
-
-    if (cooldownBar) {
-        cooldownBar.style.width =
-            `${100 - (player.shockCooldown / WAVE_COOLDOWN) * 100}%`;
-    }
-
-    if (hint) {
-        hint.textContent =
-            "WASD: MOVE  |  SHIFT: SPRINT  |  SPACE: SHOCKWAVE";
-    }
-
-    const coinsDisplay = document.getElementById("coinsDisplay");
 
     if (coinsDisplay) {
         coinsDisplay.textContent = `🪙 ${coins}`;
@@ -1541,17 +1664,11 @@ function winGame() {
     if (!gameStarted) return;
 
     gameStarted = false;
-    saveGame();
+    stopLoop();
+    clearSave();
 
-    if (winScreen) {
-        winScreen.style.display = "flex";
-    }
-
-    if (gameUI) {
-        gameUI.style.display = "none";
-    }
-
-    showMessage("THE SIGNAL HAS BEEN RESTORED");
+    setVisible(gameUI, false);
+    setVisible(winScreen, true);
 }
 
 // ==========================================
@@ -1562,6 +1679,14 @@ function gameOver() {
     if (!gameStarted) return;
 
     gameStarted = false;
+    stopLoop();
+
+    player.health = 0;
+    updateHUD();
+
+    // Respawn with full stats next time instead of 1 HP.
+    player.health = 100;
+    player.energy = 100;
     saveGame();
 
     showMessage("YOU WERE LOST IN THE DARK");
@@ -1580,9 +1705,9 @@ function gameOver() {
 // ==========================================
 
 function showMenu() {
-    if (menu) menu.style.display = "flex";
-    if (gameUI) gameUI.style.display = "none";
-    if (winScreen) winScreen.style.display = "none";
+    setVisible(menu, true);
+    setVisible(gameUI, false);
+    setVisible(winScreen, false);
 }
 
 // ==========================================
@@ -1591,11 +1716,8 @@ function showMenu() {
 
 if (restartButton) {
     restartButton.addEventListener("click", () => {
-        if (winScreen) {
-            winScreen.style.display = "none";
-        }
-
-        startGame();
+        setVisible(winScreen, false);
+        startGame(true);
     });
 }
 
@@ -1603,12 +1725,11 @@ if (restartButton) {
 // SAVE WHEN LEAVING
 // ==========================================
 
+// Firestore writes are not reliable while the page is closing, so a local
+// emergency backup is stored too. loadGame() uses it if it is newer.
 window.addEventListener("beforeunload", () => {
     if (!playerUID || !gameStarted) return;
 
-    // Bewaar direct lokaal als nood-backup.
-    // De echte save wordt tijdens het spelen elke 15 seconden
-    // naar Firestore geschreven.
     try {
         localStorage.setItem(
             "velora_backup_" + playerUID,
@@ -1616,6 +1737,12 @@ window.addEventListener("beforeunload", () => {
         );
     } catch (error) {
         console.error("Exit backup error:", error);
+    }
+});
+
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden && gameStarted) {
+        saveGame();
     }
 });
 
@@ -1643,13 +1770,19 @@ function render() {
 // GAME LOOP
 // ==========================================
 
+function stopLoop() {
+    if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+        frameId = null;
+    }
+}
+
 function gameLoop(timestamp) {
+    frameId = null;
+
     if (!gameStarted) return;
 
-    const dt = Math.min(
-        (timestamp - lastTime) / 1000,
-        0.04
-    );
+    const dt = clamp((timestamp - lastTime) / 1000, 0, 0.04);
 
     lastTime = timestamp;
 
@@ -1657,7 +1790,7 @@ function gameLoop(timestamp) {
     render();
 
     if (gameStarted) {
-        requestAnimationFrame(gameLoop);
+        frameId = requestAnimationFrame(gameLoop);
     }
 }
 
@@ -1665,13 +1798,17 @@ function gameLoop(timestamp) {
 // INITIAL STATE
 // ==========================================
 
-if (menu) menu.style.display = "flex";
-if (gameUI) gameUI.style.display = "none";
-if (winScreen) winScreen.style.display = "none";
+setVisible(menu, true);
+setVisible(gameUI, false);
+setVisible(winScreen, false);
 
 if (startButton) {
     startButton.disabled = true;
     startButton.textContent = "SIGN IN FIRST";
+}
+
+if (newGameButton) {
+    newGameButton.disabled = true;
 }
 
 console.log("VÉLORA Firestore version loaded successfully.");
