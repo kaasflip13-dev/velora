@@ -1,4 +1,3 @@
-
 // ==========================================
 // VÉLORA — THE WORLD THAT LISTENS
 // FIREBASE FIRESTORE + 5 LEVELS + STARS
@@ -37,7 +36,7 @@ import {
 // ==========================================
 
 const firebaseConfig = {
-    apiKey: "AIzaSyC8PkUPS4X9d4VLyHGnkK8W4MUDcdus6A",
+    apiKey: "AIzaSyC8PkUPS4X9d4VLyHGnkK8WW4MUDcdus6A",
     authDomain: "velora-5246f.firebaseapp.com",
     databaseURL: "https://velora-5246f-default-rtdb.europe-west1.firebasedatabase.app",
     projectId: "velora-5246f",
