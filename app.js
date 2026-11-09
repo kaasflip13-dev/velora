@@ -160,7 +160,31 @@ let levelElapsed = 0;
 let levelStartTime = 0;
 let finishingLevel = false;
 
+// ENDLESS MODE: zones keep coming, each harder than the last.
+let endless = false;
+let endlessZone = 1;
+let endlessTotal = 0;
+let endlessBest = null;
+let endlessCfg = null;
+
+function refreshEndlessCfg() {
+    const base = LEVELS[(endlessZone - 1) % LEVELS.length];
+    const z = endlessZone;
+
+    endlessCfg = {
+        ...base,
+        number: 5 + z,
+        name: `ENDLESS — ZONE ${z}`,
+        crystals: Math.min(6, 3 + Math.floor((z - 1) / 3)),
+        enemies: Math.min(30, 3 + z * 2),
+        enemySpeed: Math.min(2.2, 0.9 + z * 0.1),
+        light: Math.max(80, base.light - Math.floor((z - 1) / 5) * 10),
+        hint: "ENDLESS: collect every memory, enter the portal, survive the next zone."
+    };
+}
+
 function getLevelConfig() {
+    if (endless && endlessCfg) return endlessCfg;
     return LEVELS[currentLevel - 1] || LEVELS[0];
 }
 
@@ -250,6 +274,30 @@ LEVELS.forEach(level => {
     levelButtons.push(button);
 });
 
+const endlessButton = document.createElement("button");
+endlessButton.type = "button";
+endlessButton.className = "menu-button";
+endlessButton.textContent = "ENDLESS MODE";
+endlessButton.disabled = true;
+
+const endlessBestLabel = document.createElement("div");
+endlessBestLabel.style.cssText = `
+    font-family:Orbitron,sans-serif;
+    font-size:10px;
+    letter-spacing:2px;
+    text-align:center;
+    color:#8fdfff;
+    margin:8px 0;
+`;
+
+function updateEndlessLabel() {
+    endlessBestLabel.textContent = endlessBest
+        ? `ENDLESS BEST: ${endlessBest.memories} MEMORIES • ZONE ${endlessBest.zone}`
+        : "";
+}
+
+endlessButton.addEventListener("click", () => startGame(true, true));
+
 if (startButton && menu) {
     menu.querySelector(".menu-content")?.insertBefore(
         levelSelector,
@@ -258,6 +306,9 @@ if (startButton && menu) {
 }
 
 function updateLevelSelector() {
+    endlessButton.disabled = !currentUser;
+    updateEndlessLabel();
+
     levelButtons.forEach((button, index) => {
         const number = index + 1;
         const progress = levelProgress[String(number)] || {};
@@ -380,6 +431,8 @@ nextLevelButton.addEventListener("click", () => {
     updateLevelSelector();
     startGame(true);
 });
+
+newGameButton?.after(endlessButton, endlessBestLabel);
 
 // ==========================================
 // ACCOUNT
@@ -507,6 +560,8 @@ onAuthStateChanged(auth, async user => {
         levelProgress = {};
         unlockedLevel = 1;
         currentLevel = 1;
+        endless = false;
+        endlessBest = null;
 
         stopLoop();
         gameStarted = false;
@@ -578,6 +633,7 @@ async function savePublicProfile(user) {
         );
 
         levelProgress = data.levelProgress || {};
+        endlessBest = data.endlessBest || null;
 
         updateHUD();
         updateLevelSelector();
@@ -835,7 +891,7 @@ function makeSaveData() {
 }
 
 async function saveGame() {
-    if (!playerUID) return;
+    if (!playerUID || endless) return;
 
     try {
         await setDoc(
@@ -853,7 +909,7 @@ async function saveGame() {
 }
 
 async function clearSave() {
-    if (!playerUID) return;
+    if (!playerUID || endless) return;
 
     try {
         localStorage.removeItem("velora_backup_" + playerUID);
@@ -1110,7 +1166,7 @@ function generateWorld() {
             x,
             y,
             radius: 15,
-            speed: (random(35, 58) + cfg.number * 3) * cfg.enemySpeed,
+            speed: (random(35, 58) + Math.min(cfg.number, 8) * 3) * cfg.enemySpeed,
             angle: random(0, Math.PI * 2),
             alert: false,
             stunned: 0,
@@ -1123,10 +1179,19 @@ function generateWorld() {
 // START GAME
 // ==========================================
 
-async function startGame(newGame = false) {
+async function startGame(newGame = false, asEndless = false) {
     if (!currentUser || currentUser.isAnonymous || starting) return;
 
     starting = true;
+
+    endless = asEndless;
+
+    if (endless) {
+        endlessZone = 1;
+        endlessTotal = 0;
+        refreshEndlessCfg();
+        newGame = true;
+    }
 
     if (startButton) {
         startButton.disabled = true;
@@ -1206,7 +1271,11 @@ async function startGame(newGame = false) {
 
         frameId = requestAnimationFrame(gameLoop);
 
-        showMessage(`LEVEL ${currentLevel} — ${getLevelConfig().name}`);
+        showMessage(
+            endless
+                ? getLevelConfig().name
+                : `LEVEL ${currentLevel} — ${getLevelConfig().name}`
+        );
 
         if (newGame) {
             await saveGame();
@@ -1466,10 +1535,12 @@ async function updateCrystals() {
             crystalsCollected++;
             collectingCrystal = true;
 
+            if (endless) endlessTotal++;
+
             try {
                 if (playerUID) {
                     await updateDoc(publicUserRef(playerUID), {
-                        coins: increment(10),
+                        coins: increment(endless ? 5 : 10),
                         updatedAt: serverTimestamp()
                     });
 
@@ -1483,7 +1554,7 @@ async function updateCrystals() {
                 updateHUD();
                 await saveGame();
 
-                showMessage("+10 COINS — MEMORY FOUND");
+                showMessage(endless ? "+5 COINS — MEMORY FOUND" : "+10 COINS — MEMORY FOUND");
 
             } catch (error) {
                 console.error("Coin save error:", error);
@@ -1549,6 +1620,78 @@ function updateCamera() {
 }
 
 // ==========================================
+// ENDLESS: NEXT ZONE + RUN END
+// ==========================================
+
+function advanceZone() {
+    endlessZone++;
+    refreshEndlessCfg();
+    applyLevelConfig();
+
+    crystalsCollected = 0;
+    inHazard = false;
+    shockwaves = [];
+    particles = [];
+
+    player.x = WORLD_W / 2;
+    player.y = WORLD_H / 2;
+    player.health = Math.min(100, player.health + 30);
+    player.energy = 100;
+    player.shockCooldown = 0;
+
+    generateWorld();
+    updateCamera();
+    showMessage(`${getLevelConfig().name} — +30 HEALTH`);
+}
+
+async function finishEndless() {
+    const time = levelElapsed;
+    const run = { memories: endlessTotal, zone: endlessZone, time: Math.round(time * 10) / 10 };
+
+    let best = run;
+
+    try {
+        if (playerUID) {
+            const ref = publicUserRef(playerUID);
+            const snapshot = await getDoc(ref);
+            const prev = snapshot.exists() ? snapshot.data().endlessBest : null;
+
+            if (prev && Number(prev.memories) >= run.memories) {
+                best = prev;
+            } else {
+                await updateDoc(ref, {
+                    endlessBest: run,
+                    updatedAt: serverTimestamp()
+                });
+            }
+        }
+    } catch (error) {
+        console.error("Endless save error:", error);
+    }
+
+    endlessBest = best;
+    updateEndlessLabel();
+
+    resultTime.textContent = `SURVIVED: ${formatTime(time)}`;
+    resultStars.textContent = `ZONE ${run.zone}`;
+    resultCoins.textContent = `${run.memories} MEMORIES COLLECTED`;
+    resultBest.textContent =
+        `BEST: ${best.memories} MEMORIES  •  ZONE ${best.zone}`;
+
+    const heading = winContent?.querySelector("h2");
+    const paragraph = winContent?.querySelector("p");
+
+    if (heading) heading.textContent = "RUN OVER";
+    if (paragraph) paragraph.textContent = "The dark claimed you. How deep can you go?";
+
+    nextLevelButton.style.display = "none";
+    if (restartButton) restartButton.textContent = "TRY AGAIN";
+
+    setVisible(gameUI, false);
+    setVisible(winScreen, true);
+}
+
+// ==========================================
 // WORLD UPDATE
 // ==========================================
 
@@ -1581,6 +1724,11 @@ function update(dt) {
         crystalsCollected >= MAX_CRYSTALS &&
         distance(player, portal) < 55
     ) {
+        if (endless) {
+            advanceZone();
+            return;
+        }
+
         winGame();
     }
 
@@ -2068,7 +2216,9 @@ function updateHUD() {
     const levelLabel = document.getElementById("currentLevelLabel");
 
     if (levelLabel) {
-        levelLabel.textContent = `${currentLevel} — ${getLevelConfig().name}`;
+        levelLabel.textContent = endless
+            ? `ZONE ${endlessZone} · ${endlessTotal} MEMORIES`
+            : `${currentLevel} — ${getLevelConfig().name}`;
     }
 }
 
@@ -2223,6 +2373,11 @@ function gameOver() {
     player.health = 0;
     updateHUD();
 
+    if (endless) {
+        finishEndless();
+        return;
+    }
+
     player.health = 100;
     player.energy = 100;
 
@@ -2255,7 +2410,7 @@ function showMenu() {
 
 restartButton?.addEventListener("click", () => {
     setVisible(winScreen, false);
-    startGame(true);
+    startGame(true, endless);
 });
 
 // ==========================================
@@ -2263,7 +2418,7 @@ restartButton?.addEventListener("click", () => {
 // ==========================================
 
 window.addEventListener("beforeunload", () => {
-    if (!playerUID || !gameStarted) return;
+    if (!playerUID || !gameStarted || endless) return;
 
     try {
         localStorage.setItem(
