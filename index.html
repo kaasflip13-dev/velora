@@ -1,83 +1,166 @@
+
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#03040b">
+
     <title>VÉLORA — The World That Listens</title>
-    <link rel="stylesheet" href="style.css">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="./style.css">
 </head>
+
 <body>
-    <div id="menu">
+
+    <!-- GAME MENU -->
+    <div id="menu" class="menu">
+
         <div class="menu-content">
-            <div class="eyebrow">AN UNKNOWN WORLD AWAITS</div>
-            <h1>VÉLORA</h1>
-            <p>THE WORLD THAT LISTENS</p>
 
-            <div id="accountPanel">
-                <div id="loginArea">
-                    <div class="account-title">PLAYER ACCOUNT</div>
-                    <div class="account-subtitle">Sign in to save your progress</div>
-                    <button id="googleButton" class="google-button">
-                        <span class="google-icon">G</span>
-                        SIGN IN WITH GOOGLE
-                    </button>
-                    <div id="loginStatus">Connect your Google account</div>
+            <div class="game-logo">
+                <h1>VÉLORA</h1>
+                <p>THE WORLD THAT LISTENS</p>
+            </div>
+
+            <div class="menu-subtitle">
+                AN UNKNOWN WORLD AWAITS
+            </div>
+
+            <div id="authArea" class="auth-area">
+                <button id="loginButton" class="menu-button">
+                    SIGN IN WITH GOOGLE
+                </button>
+
+                <div id="userInfo"></div>
+
+                <button id="logoutButton" class="menu-button" hidden>
+                    SIGN OUT
+                </button>
+            </div>
+
+            <div id="menuMessage" class="menu-message"></div>
+
+            <button id="startButton" class="main-button">
+                ENTER THE WORLD
+            </button>
+
+            <button id="newGameButton" class="menu-button" hidden>
+                NEW GAME
+            </button>
+
+            <div class="objective">
+                FIND THE LOST MEMORIES
+            </div>
+
+            <div class="menu-footer">
+                A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM
+            </div>
+
+        </div>
+    </div>
+
+
+    <!-- GAME -->
+    <div id="gameContainer" class="game-container" hidden>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- HUD -->
+        <div id="hud" class="hud">
+
+            <div class="hud-left">
+
+                <div class="hud-panel">
+                    <span class="hud-label">MEMORIES</span>
+                    <span id="crystalCount">0 / 5</span>
                 </div>
 
-                <div id="loggedInArea" style="display:none">
-                    <div class="account-title">SIGNED IN</div>
-                    <div id="playerName"></div>
-                    <div id="playerEmail"></div>
-                    <button id="logoutButton" class="logout-button">SIGN OUT</button>
+                <div class="hud-panel">
+                    <span class="hud-label">COINS</span>
+                    <span id="coinCount">0</span>
                 </div>
+
             </div>
 
-            <button id="startButton" disabled>ENTER THE WORLD</button>
+            <div class="hud-right">
 
-            <div id="playersPanel">
-                <div class="players-heading">PLAYERS IN VÉLORA</div>
-                <div id="playersList">Loading players...</div>
+                <div class="hud-panel">
+                    <span class="hud-label">HEALTH</span>
+                    <div class="bar">
+                        <div id="healthBar" class="bar-fill health-fill"></div>
+                    </div>
+                </div>
+
+                <div class="hud-panel">
+                    <span class="hud-label">ENERGY</span>
+                    <div class="bar">
+                        <div id="energyBar" class="bar-fill energy-fill"></div>
+                    </div>
+                </div>
+
             </div>
 
-            <div class="menu-bottom">A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM</div>
+        </div>
+
+        <!-- GAME MESSAGE -->
+        <div id="gameMessage" class="game-message"></div>
+
+        <!-- PAUSE BUTTON -->
+        <button id="pauseButton" class="pause-button">
+            PAUSE
+        </button>
+
+    </div>
+
+
+    <!-- LEADERBOARD -->
+    <section id="leaderboard" class="leaderboard">
+
+        <h2>GLOBAL LEADERBOARD</h2>
+
+        <p>THE EXPLORERS OF VÉLORA</p>
+
+        <div id="leaderboardList">
+            <div class="leaderboard-loading">
+                Loading explorers...
+            </div>
+        </div>
+
+    </section>
+
+
+    <!-- GAME OVER -->
+    <div id="gameOverScreen" class="overlay" hidden>
+        <div class="overlay-content">
+            <h2>YOUR JOURNEY ENDS</h2>
+            <p id="gameOverText">The world has fallen silent.</p>
+            <button id="returnMenuButton" class="main-button">
+                RETURN TO MENU
+            </button>
         </div>
     </div>
 
-    <div id="gameUI">
-        <canvas id="game"></canvas>
 
-        <header>
-            <div class="logo">VÉLORA</div>
-            <div class="objective">FIND THE LOST MEMORIES</div>
-            <div class="crystals">✦ <span id="crystalCount">0</span> / 5</div>
-        </header>
-
-        <div id="statusPanel">
-            <div class="stat-line"><span>VITALITY</span><div class="stat-track"><div id="healthBar"></div></div></div>
-            <div class="stat-line"><span>ENERGY</span><div class="stat-track"><div id="energyBar"></div></div></div>
-        </div>
-
-        <div id="cooldownContainer">
-            <div class="cooldown-label">
-                <span>SHOCK WAVE</span>
-                <span id="cooldownText">READY</span>
-            </div>
-            <div id="cooldown"><div id="cooldownBar"></div></div>
-        </div>
-
-        <div id="hint">WASD — MOVE &nbsp; SHIFT — SPRINT &nbsp; SPACE — SHOCK WAVE</div>
-        <div id="message"></div>
-    </div>
-
-    <div id="winScreen">
-        <div class="win-content">
-            <div class="eyebrow">MEMORY RESTORED</div>
-            <h1>THE WORLD REMEMBERS</h1>
-            <p>You brought the light back to Vélora.</p>
-            <button id="restartButton">PLAY AGAIN</button>
+    <!-- VICTORY -->
+    <div id="victoryScreen" class="overlay" hidden>
+        <div class="overlay-content">
+            <h2>MEMORIES RESTORED</h2>
+            <p>You have brought light back to VÉLORA.</p>
+            <button id="victoryMenuButton" class="main-button">
+                RETURN TO MENU
+            </button>
         </div>
     </div>
 
-    <script type="module" src="app.js"></script>
+
+    <!-- FIREBASE + GAME -->
+    <script type="module" src="./app.js"></script>
+
 </body>
 </html>
