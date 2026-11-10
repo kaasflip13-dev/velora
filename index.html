@@ -4,8 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#03040b">
+    <meta name="description" content="V-CLIENT — community client for VÉLORA. Sign in with your V-Client account, manage your cloud mods, then connect to the official VÉLORA servers.">
 
-    <title>VÉLORA — The World That Listens</title>
+    <title>V-CLIENT — VÉLORA Game Client</title>
+
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23071021'/%3E%3Cpath d='M18 16 L32 50 L46 16' stroke='%2364e6ff' stroke-width='7' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,8 +17,45 @@
 
     <link rel="stylesheet" href="./style.css">
 </head>
-
 <body>
+
+    <!-- CLIENT BAR -->
+    <header id="clientBar">
+        <div class="client-brand">
+            <div class="client-logo">V</div>
+            <div class="client-brand-text">
+                <span class="client-name">V-CLIENT</span>
+                <span class="client-sub">VÉLORA GAME CLIENT · v1.4.0</span>
+            </div>
+        </div>
+
+        <div class="client-server">
+            <div class="server-panel">
+                <span id="serverDot" class="status-dot connecting"></span>
+                <div class="server-text">
+                    <span class="server-label">VELORA-5246F · EU-WEST</span>
+                    <span id="serverStatus">CONNECTING</span>
+                </div>
+                <span id="serverPing" class="server-ping"></span>
+            </div>
+
+            <div class="explorer-panel">
+                <span class="hud-label">EXPLORERS</span>
+                <span id="explorerCount">—</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- CONNECT OVERLAY -->
+    <div id="connectOverlay" class="overlay client-overlay">
+        <div class="overlay-content">
+            <h2>V-CLIENT</h2>
+            <div class="connect-spinner"></div>
+            <p id="connectStatus">CONNECTING TO THE VÉLORA SERVERS...</p>
+            <button id="retryButton" class="menu-button" hidden>RETRY CONNECTION</button>
+            <button id="continueButton" class="menu-button" hidden>CONTINUE ANYWAY</button>
+        </div>
+    </div>
 
     <!-- MAIN MENU -->
     <div id="menu" class="menu">
@@ -34,25 +74,73 @@
             <!-- LOGIN AREA -->
             <div id="loginArea" class="auth-area">
 
-                <button id="googleButton" class="menu-button">
-                    SIGN IN WITH GOOGLE
+                <div class="auth-steps">
+                    <span id="step1" class="auth-step active">1 · V-CLIENT</span>
+                    <span class="auth-arrow">→</span>
+                    <span id="step2" class="auth-step">2 · VÉLORA</span>
+                </div>
+
+                <button id="vclientButton" class="menu-button">
+                    SIGN IN WITH V-CLIENT
+                </button>
+
+                <button id="veloraButton" class="menu-button velora-button" hidden>
+                    CONNECT TO VÉLORA
                 </button>
 
                 <div id="loginStatus" class="menu-message"></div>
+
+                <div class="auth-note">
+                    STEP 1 OPENS YOUR V-CLIENT ACCOUNT (GOOGLE · KITACAT-V-CLIENT) · STEP 2 LOGS YOU INTO THE
+                    OFFICIAL VÉLORA SERVERS THROUGH VÉLORA ITSELF — YOUR MEMORIES, COINS AND LEADERBOARD
+                    RANK BELONG TO YOUR REAL VÉLORA ACCOUNT
+                </div>
 
             </div>
 
             <!-- LOGGED IN AREA -->
             <div id="loggedInArea" hidden>
 
-                <div id="playerName"></div>
-                <div id="playerEmail"></div>
+                <div class="account-card">
+                    <div class="account-title">V-CLIENT ACCOUNT</div>
+                    <div id="playerName"></div>
+                    <div id="playerEmail"></div>
+                </div>
+
+                <div class="account-card velora-card">
+                    <div class="account-title velora-title">
+                        <span class="link-dot"></span>
+                        VÉLORA SERVERS · CONNECTED
+                    </div>
+                    <div id="veloraName"></div>
+                </div>
 
                 <button id="logoutButton" class="menu-button">
                     SIGN OUT
                 </button>
 
             </div>
+
+            <!-- ==================== MODS ==================== -->
+            <div id="modsSection" class="mods-section" hidden>
+
+                <div class="mods-header">
+                    <span class="mods-title">MODS · .VCLIENT FILES</span>
+                    <span class="mods-hint">
+                        STORED IN YOUR V-CLIENT CLOUD — SYNCED TO EVERY DEVICE YOU SIGN IN ON
+                    </span>
+                </div>
+
+                <label class="menu-button mods-upload" for="modUpload">
+                    UPLOAD MOD (.VCLIENT)
+                </label>
+                <input type="file" id="modUpload" accept=".vclient" multiple hidden>
+
+                <div id="modsList" class="mods-list"></div>
+
+                <div id="modsStatus" class="menu-message"></div>
+            </div>
+            <!-- ============================================= -->
 
             <button id="startButton" class="main-button">
                 ENTER THE WORLD
@@ -64,6 +152,11 @@
 
             <div class="objective">
                 FIND THE LOST MEMORIES
+            </div>
+
+            <div class="client-note">
+                <span class="client-dot"></span>
+                <span>OFFICIAL SERVERS — game progress, cloud saves and the leaderboard run on the real VÉLORA servers. Mods run on top of the game as .vclient files from your V-Client cloud.</span>
             </div>
 
             <div class="menu-footer">
@@ -87,8 +180,20 @@
 
         </section>
 
-    </div>
+        <!-- CLIENT FOOTER -->
+        <section class="client-footer">
+            <h3>V-CLIENT 1.4.0</h3>
+            <ul>
+                <li>Step 1 — V-Client account: Google sign-in on V-Client's own Firebase (kitacat-v-client)</li>
+                <li>Step 2 — VÉLORA login through VÉLORA itself (velora-5246f): same account as the original game</li>
+                <li>Cloud mods: upload (NAME).vclient files — they live in your V-Client cloud and follow your account</li>
+                <li>Cloud saves, coins, stars, endless records and the global leaderboard sync with VÉLORA</li>
+                <li>Live VÉLORA server status and ping in the client bar · ESC — save &amp; exit to menu</li>
+            </ul>
+            <p class="client-footer-note">V-CLIENT IS A COMMUNITY CLIENT · ALL GAME SYSTEMS AND CONTENT BELONG TO VÉLORA</p>
+        </section>
 
+    </div>
 
     <!-- GAME AREA -->
     <div id="gameUI" hidden>
@@ -147,7 +252,6 @@
 
     </div>
 
-
     <!-- WIN SCREEN -->
     <div id="winScreen" class="overlay" hidden>
 
@@ -167,8 +271,7 @@
 
     </div>
 
-
-    <!-- GAME SCRIPT -->
+    <!-- CLIENT SCRIPT -->
     <script type="module" src="./app.js"></script>
 
 </body>
