@@ -1,3 +1,4 @@
+
 // ==========================================
 // VÉLORA — THE WORLD THAT LISTENS
 // FIREBASE FIRESTORE + 5 LEVELS + STARS
@@ -2008,8 +2009,7 @@ function drawEnemies() {
 
         if (
             x < -50 || y < -50 ||
-            x > canvas.width + 50 ||
-            y > canvas.height + 50
+            x > canvas.width + 50 || y > canvas.height + 50
         ) continue;
 
         ctx.save();
