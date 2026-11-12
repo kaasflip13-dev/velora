@@ -3,6 +3,10 @@
 // Quick Match (4 players) + Private Rooms + shared bot combat
 // This module is intentionally separate from the single-player
 // app.js game loop. It uses the existing default Firebase Auth app.
+//
+// Works in BOTH the original VÉLORA site and in V-CLIENT.
+// In V-CLIENT the default Firebase app is the VÉLORA one (velora-5246f),
+// so co-op uses the account from step 2 ("CONNECT TO VÉLORA").
 // ============================================================
 
 import { getApp, getApps, initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
@@ -26,6 +30,17 @@ const SERVER_URL = "wss://velora-7dxm.onrender.com/ws";
 const WORLD = { width: 2400, height: 1800 };
 const MAX_PLAYERS = 4;
 const auth = getAuth(firebaseApp);
+
+// V-CLIENT has a second login step ("CONNECT TO VÉLORA"); the original game doesn't.
+const IS_VCLIENT = Boolean(document.getElementById("veloraButton"));
+
+const TEXT_SIGN_IN = IS_VCLIENT
+    ? "Connect to VÉLORA (step 2) to play online."
+    : "Sign in with Google to play online.";
+
+const TEXT_SIGN_IN_FIRST = IS_VCLIENT
+    ? "Connect to VÉLORA first (step 2)."
+    : "Sign in with Google first.";
 
 const menu = document.getElementById("menu");
 const gameUI = document.getElementById("gameUI");
@@ -442,8 +457,8 @@ function buildMenu() {
       <h2>CO-OP BLASTERS</h2>
 
       <p class="mp-sub">
-        TEAM UP WITH 3 OTHER EXPLORERS.<br>
-        TAKE DOWN THE BOT SWARM. MAX 4 PLAYERS.
+        TEAM UP WITH UP TO 3 OTHER EXPLORERS — OR GO SOLO.<br>
+        TAKE DOWN THE BOT SWARM. 1–4 PLAYERS. EVERYONE CLICKS READY TO START.
       </p>
 
       <div class="mp-actions">
@@ -462,7 +477,7 @@ function buildMenu() {
       </div>
 
       <div id="mpMenuStatus" role="status" aria-live="polite">
-        Sign in with Google to play online.
+        ${TEXT_SIGN_IN}
       </div>
 
       <div id="mpLobby" class="mp-lobby" hidden>
@@ -481,7 +496,7 @@ function buildMenu() {
 
         <div class="mp-lobby-controls">
             <button type="button" id="mpCopyCode">COPY CODE</button>
-            <button type="button" id="mpStartMission">START MISSION</button>
+            <button type="button" id="mpReadyToggle">READY</button>
             <button type="button" id="mpLeaveRoom">LEAVE ROOM</button>
         </div>
       </div>
@@ -499,7 +514,7 @@ function buildMenu() {
     lobbyPlayers = panel.querySelector("#mpLobbyPlayers");
     lobbyCode = panel.querySelector("#mpRoomCode");
     lobbyStatus = panel.querySelector("#mpLobbyStatus");
-    startButton = panel.querySelector("#mpStartMission");
+    startButton = panel.querySelector("#mpReadyToggle");
     leaveButton = panel.querySelector("#mpLeaveRoom");
     copyButton = panel.querySelector("#mpCopyCode");
 
@@ -527,7 +542,11 @@ function buildMenu() {
         if (e.key === "Enter") joinButton.click();
     });
 
-    startButton.addEventListener("click", () => runAction("start_mission"));
+    startButton.addEventListener("click", () => {
+        const me = (room?.players || []).find(p => p.uid === signedInUser?.uid);
+
+        runAction("set_ready", { ready: !me?.ready });
+    });
     leaveButton.addEventListener("click", () => runAction("leave_room"));
 
     copyButton.addEventListener("click", async () => {
@@ -556,7 +575,7 @@ function updateAuthButtons() {
     }
 
     if (!ready && menuStatus && !room) {
-        setMenuStatus("Sign in with Google to play online.");
+        setMenuStatus(TEXT_SIGN_IN);
     }
 
     if (ready && menuStatus && !room) {
@@ -571,21 +590,21 @@ function updateLobby() {
     lobbyCode.textContent = room.code || "------";
 
     const players = Array.isArray(room.players) ? room.players : [];
+    const readyCount = players.filter(p => p.ready).length;
+    const me = players.find(p => p.uid === signedInUser?.uid);
+    const inLobby = room.status === "lobby";
 
-    panelText(
-        lobbyStatus,
-        room.mode === "quick"
-            ? (
-                room.status === "lobby"
-                    ? "Searching for teammates... the mission starts when the team fills or the timer ends."
-                    : "Preparing mission..."
-            )
-            : (
-                room.status === "lobby"
-                    ? "Share the room code. The host can start when everyone is ready."
-                    : "Mission in progress."
-            )
-    );
+    if (!inLobby) {
+        panelText(lobbyStatus, "Mission in progress.");
+    } else if (players.length && readyCount === players.length) {
+        panelText(lobbyStatus, "Everyone is ready — starting mission...");
+    } else {
+        panelText(
+            lobbyStatus,
+            `${readyCount}/${players.length} ready. The mission starts when everyone clicks READY.` +
+            (room.mode === "private" ? " Share the room code with friends." : "")
+        );
+    }
 
     panelText(panelCount(), `${players.length}/${MAX_PLAYERS}`);
 
@@ -596,12 +615,15 @@ function updateLobby() {
         row.className = "mp-lobby-player";
 
         const name = document.createElement("span");
-        name.textContent = p.name || "Explorer";
+        name.textContent =
+            (p.name || "Explorer") +
+            (p.uid === room.hostUid ? " · HOST" : "");
 
-        const role = document.createElement("small");
-        role.textContent = p.uid === room.hostUid ? "HOST" : "READY";
+        const status = document.createElement("small");
+        status.textContent = p.ready ? "READY ✓" : "NOT READY";
+        status.style.color = p.ready ? "#7affdf" : "#8eb2c2";
 
-        row.append(name, role);
+        row.append(name, status);
         lobbyPlayers.appendChild(row);
     }
 
@@ -612,10 +634,10 @@ function updateLobby() {
         lobbyPlayers.appendChild(empty);
     }
 
-    const isHost = room.hostUid === signedInUser?.uid;
+    startButton.hidden = false;
+    startButton.disabled = !inLobby || !me;
+    startButton.textContent = me?.ready ? "UNREADY" : "READY";
 
-    startButton.hidden = room.mode === "quick";
-    startButton.disabled = !isHost || room.status !== "lobby";
     copyButton.hidden = room.mode !== "private";
 }
 
@@ -639,14 +661,15 @@ function connect() {
     if (connectPromise) return connectPromise;
 
     if (!signedInUser) {
-        return Promise.reject(new Error("Sign in with Google first."));
+        return Promise.reject(new Error(TEXT_SIGN_IN_FIRST));
     }
 
     connectPromise = new Promise(async (resolve, reject) => {
         try {
             const token = await signedInUser.getIdToken();
 
-            socket = new WebSocket(SERVER_URL);
+            const ws = new WebSocket(SERVER_URL);
+            socket = ws;
 
             const timeout = setTimeout(() => {
                 if (!authReady) {
@@ -654,14 +677,16 @@ function connect() {
                 }
             }, 12000);
 
-            socket.addEventListener("open", () => {
-                socket.send(JSON.stringify({
+            ws.addEventListener("open", () => {
+                ws.send(JSON.stringify({
                     type: "auth",
                     token
                 }));
             }, { once: true });
 
-            socket.addEventListener("message", event => {
+            ws.addEventListener("message", event => {
+                if (ws !== socket) return;
+
                 let data;
 
                 try {
@@ -682,7 +707,12 @@ function connect() {
                 }
             });
 
-            socket.addEventListener("close", () => {
+            ws.addEventListener("close", () => {
+                clearTimeout(timeout);
+
+                // An old socket closing must not wipe out a newer connection.
+                if (ws !== socket) return;
+
                 const wasActive = activeMission || Boolean(room);
 
                 authReady = false;
@@ -696,8 +726,8 @@ function connect() {
                 }
             });
 
-            socket.addEventListener("error", () => {
-                if (!authReady) {
+            ws.addEventListener("error", () => {
+                if (ws === socket && !authReady) {
                     clearTimeout(timeout);
                     reject(new Error("Could not connect to the multiplayer server."));
                 }
@@ -715,14 +745,20 @@ function connect() {
 
 async function runAction(type, payload = {}) {
     if (!signedInUser) {
-        return setMenuStatus("Sign in with Google before entering multiplayer.");
+        return setMenuStatus(
+            IS_VCLIENT
+                ? "Connect to VÉLORA (step 2) before entering multiplayer."
+                : "Sign in with Google before entering multiplayer."
+        );
     }
 
-    setMenuStatus(
-        type === "quick_match"
-            ? "Connecting to matchmaking..."
-            : "Connecting..."
-    );
+    // Only the actions the player clicked in the menu change the status line.
+    // (get_room / set_ready / leave_room must not overwrite it with "Connecting...")
+    if (type === "quick_match") {
+        setMenuStatus("Connecting to matchmaking...");
+    } else if (type === "create_room" || type === "join_room") {
+        setMenuStatus("Connecting...");
+    }
 
     try {
         await connect();
@@ -737,7 +773,7 @@ async function runAction(type, payload = {}) {
         }));
 
         if (type === "quick_match") {
-            setMenuStatus("Finding explorers for your 4-player team...");
+            setMenuStatus("Finding a team room...");
         }
 
         if (type === "create_room") {
@@ -784,7 +820,7 @@ function handleServerMessage(data) {
 
         case "player_joined":
         case "player_left":
-            runAction("get_room").catch(() => {});
+            // The server follows up with a room_update, so nothing to do here.
             break;
 
         case "mission_started":
