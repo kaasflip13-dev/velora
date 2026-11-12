@@ -23,7 +23,6 @@ const TICK_MS = 50;
 const SNAPSHOT_MS = 100;
 const MISSION_TIME_MS = 180000;
 
-// Built-in origins (VÉLORA + V-CLIENT) plus anything in ALLOWED_ORIGINS.
 const allowedOrigins = [...new Set([
     "https://kaasflip13-dev.github.io",
     "https://velora.partybag.com",
@@ -61,6 +60,9 @@ const app = express();
 
 app.disable("x-powered-by");
 
+const rooms = new Map();
+const socketsByUid = new Map();
+
 app.get("/", (_req, res) => {
     res.send("VÉLORA CO-OP SERVER ONLINE");
 });
@@ -83,13 +85,6 @@ const wss = new WebSocketServer({
     noServer: true,
     maxPayload: 16384
 });
-
-// ======================================================
-// STATE
-// ======================================================
-
-const rooms = new Map();
-const socketsByUid = new Map();
 
 // ======================================================
 // HELPERS
@@ -142,7 +137,8 @@ function publicPlayer(p) {
         maxHp: p.maxHp,
         downed: p.downed,
         respawnAt: p.respawnAt,
-        kills: p.kills
+        kills: p.kills,
+        coins: p.coins || 0
     };
 }
 
@@ -173,6 +169,8 @@ function createRoom(mode, host) {
         hostUid: host.uid,
         players: new Map(),
         bots: [],
+        coins: [],
+        nextCoinId: 1,
         createdAt: Date.now(),
         missionEndsAt: 0,
         lastSnapshotAt: 0,
@@ -202,6 +200,7 @@ function addPlayer(room, client) {
         downed: false,
         respawnAt: 0,
         kills: 0,
+        coins: 0,
         ready: false,
 
         input: {
@@ -226,8 +225,6 @@ function roomUpdate(room) {
     });
 }
 
-// Start the mission as soon as EVERY player in the lobby is ready.
-// Minimum 1 player, maximum 4 (MAX_PLAYERS is enforced in addPlayer).
 function checkAllReady(room) {
     if (!room || room.status !== "lobby") return;
     if (room.players.size < MIN_PLAYERS) return;
@@ -272,8 +269,6 @@ function removePlayer(client) {
     });
 
     roomUpdate(room);
-
-    // If the only player who wasn't ready just left, the rest can go.
     checkAllReady(room);
 }
 
@@ -327,6 +322,13 @@ function missionSnapshot(room) {
 
         players: [...room.players.values()].map(publicPlayer),
 
+        coins: room.coins.map(c => ({
+            id: c.id,
+            x: c.x,
+            y: c.y,
+            value: c.value
+        })),
+
         bots: room.bots.map(b => ({
             id: b.id,
             kind: b.kind,
@@ -344,14 +346,11 @@ function missionSnapshot(room) {
 }
 
 // ======================================================
-// START MISSION — MINIMUM 1 PLAYER
+// START MISSION
 // ======================================================
 
 function startMission(room) {
-    if (!room) return false;
-    if (room.status !== "lobby") return false;
-
-    // IMPORTANT: one player is enough!
+    if (!room || room.status !== "lobby") return false;
     if (room.players.size < MIN_PLAYERS) return false;
 
     if (room.matchTimer) {
@@ -361,6 +360,8 @@ function startMission(room) {
 
     room.status = "mission";
     room.bots = createBots();
+    room.coins = [];
+    room.nextCoinId = 1;
     room.missionEndsAt = Date.now() + MISSION_TIME_MS;
 
     let slot = 0;
@@ -377,8 +378,6 @@ function startMission(room) {
         slot++;
     }
 
-    // NOTE: spread FIRST, otherwise missionSnapshot's own type: "snapshot"
-    // would overwrite "mission_started" and clients would never begin the mission.
     broadcast(room, {
         ...missionSnapshot(room),
         type: "mission_started"
@@ -411,6 +410,15 @@ function angleDelta(a, b) {
     return Math.abs(d - Math.PI);
 }
 
+function dropCoins(room, bot) {
+    room.coins.push({
+        id: `coin-${room.nextCoinId++}`,
+        x: bot.x,
+        y: bot.y,
+        value: 5
+    });
+}
+
 function handleAttack(room, player) {
     const now = Date.now();
 
@@ -420,59 +428,73 @@ function handleAttack(room, player) {
         now < player.attackReadyAt
     ) return;
 
-    player.attackReadyAt = now + 430;
+    player.attackReadyAt = now + 330;
+
+    const maxRange = 620;
+    const dirX = Math.cos(player.angle);
+    const dirY = Math.sin(player.angle);
 
     let target = null;
-    let best = Infinity;
+    let bestAlong = maxRange;
 
     for (const bot of room.bots) {
         if (bot.dead) continue;
 
-        const d = distance(player, bot);
-        if (d > 168) continue;
+        const dx = bot.x - player.x;
+        const dy = bot.y - player.y;
 
-        const angle = Math.atan2(
-            bot.y - player.y,
-            bot.x - player.x
+        const along = dx * dirX + dy * dirY;
+
+        if (along < 0 || along > maxRange) continue;
+
+        const perpendicular = Math.abs(
+            dx * dirY - dy * dirX
         );
 
-        if (angleDelta(angle, player.angle) > 0.78) continue;
+        const botRadius =
+            bot.kind === "brute" ? 27 :
+            bot.kind === "scout" ? 15 : 20;
 
-        if (d < best) {
-            best = d;
+        if (perpendicular > botRadius + 19) continue;
+
+        if (along < bestAlong) {
+            bestAlong = along;
             target = bot;
         }
     }
 
-    const damage = target ? 42 : 0;
+    const endDistance = target ? bestAlong : maxRange;
+
+    const endPoint = {
+        x: player.x + dirX * endDistance,
+        y: player.y + dirY * endDistance
+    };
+
+    let killed = false;
 
     if (target) {
-        target.hp = Math.max(0, target.hp - damage);
+        target.hp = Math.max(0, target.hp - 42);
         target.hitUntil = now + 180;
 
-        if (target.hp <= 0) {
+        if (target.hp <= 0 && !target.dead) {
             target.dead = true;
             player.kills++;
+            killed = true;
+            dropCoins(room, target);
         }
     }
 
     broadcast(room, {
         type: "attack_event",
         uid: player.uid,
-
         from: { x: player.x, y: player.y },
-
         to: target
             ? { x: target.x, y: target.y }
-            : {
-                x: player.x + Math.cos(player.angle) * 135,
-                y: player.y + Math.sin(player.angle) * 135
-            },
-
+            : endPoint,
         hit: Boolean(target),
         targetId: target?.id || null,
-        damage,
-        killed: Boolean(target?.dead)
+        damage: target ? 42 : 0,
+        killed
     });
 }
 
@@ -485,25 +507,25 @@ function handleSpecial(room, player) {
         now < player.specialReadyAt
     ) return;
 
-    player.specialReadyAt = now + 8500;
+    player.specialReadyAt = now + 5000;
 
-    const radius = 275;
-    const hitBots = [];
+    const radius = 230;
+    const damage = 85;
 
     for (const bot of room.bots) {
         if (bot.dead || distance(player, bot) > radius) continue;
 
-        const damage = 95;
-
         bot.hp = Math.max(0, bot.hp - damage);
         bot.hitUntil = now + 260;
 
-        if (bot.hp <= 0) {
+        if (bot.hp <= 0 && !bot.dead) {
             bot.dead = true;
             player.kills++;
+            dropCoins(room, bot);
         }
 
-        hitBots.push({
+        broadcast(room, {
+            type: "bot_hit",
             id: bot.id,
             x: bot.x,
             y: bot.y,
@@ -517,27 +539,24 @@ function handleSpecial(room, player) {
         uid: player.uid,
         x: player.x,
         y: player.y,
-        radius,
-        hitBots
+        radius
     });
 }
 
 function handleRevive(room, player) {
     const now = Date.now();
 
-    if (
-        room.status !== "mission" ||
-        player.downed ||
-        now - player.lastReviveAt < 1100
-    ) return;
+    if (now - player.lastReviveAt < 1000) return;
+    player.lastReviveAt = now;
 
-    const target = [...room.players.values()].find(
-        p => p.downed && distance(player, p) < 95
+    const target = [...room.players.values()].find(p =>
+        p.uid !== player.uid &&
+        p.downed &&
+        distance(player, p) < 95
     );
 
     if (!target) return;
 
-    player.lastReviveAt = now;
     target.downed = false;
     target.hp = 45;
     target.respawnAt = 0;
@@ -545,57 +564,24 @@ function handleRevive(room, player) {
     broadcast(room, {
         type: "player_revived",
         uid: target.uid,
-        by: player.uid,
-        x: target.x,
-        y: target.y
+        by: player.uid
     });
 }
 
 // ======================================================
-// CLIENT COMMANDS
+// MESSAGE HANDLING
 // ======================================================
 
 function processMessage(client, message) {
-    const type = String(message?.type || "");
+    const type = message.type;
 
-    // QUICK MATCH
-    if (type === "quick_match") {
-        if (client.roomCode) removePlayer(client);
-
-        let room = [...rooms.values()].find(r =>
-            r.mode === "quick" &&
-            r.status === "lobby" &&
-            r.players.size < MAX_PLAYERS
-        );
-
-        if (!room) room = createRoom("quick", client);
-
-        if (!addPlayer(room, client)) {
-            return send(client.ws, {
-                type: "error",
-                message: "Team is full."
-            });
-        }
-
-        send(client.ws, {
-            type: "room_joined",
-            ...roomInfo(room),
-            yourUid: client.uid
-        });
-
-        roomUpdate(room);
-
-        // No timer and no auto-start: the mission begins when
-        // everybody in the room has clicked READY.
-        return;
-    }
-
-    // CREATE PRIVATE ROOM
     if (type === "create_room") {
-        if (client.roomCode) removePlayer(client);
+        removePlayer(client);
 
-        const room = createRoom("private", client);
-        addPlayer(room, client);
+        const mode = String(message.mode || "quick").slice(0, 20);
+        const room = createRoom(mode, client);
+
+        if (!addPlayer(room, client)) return;
 
         send(client.ws, {
             type: "room_joined",
@@ -607,44 +593,37 @@ function processMessage(client, message) {
         return;
     }
 
-    // JOIN PRIVATE ROOM
     if (type === "join_room") {
         const code = String(message.code || "")
-            .toUpperCase()
-            .replace(/[^A-Z0-9]/g, "")
-            .slice(0, 6);
+            .trim()
+            .toUpperCase();
 
         const room = rooms.get(code);
 
-        if (
-            !room ||
-            room.mode !== "private" ||
-            room.status !== "lobby"
-        ) {
+        if (!room) {
             return send(client.ws, {
                 type: "error",
-                message: "Private room not found or already started."
+                message: "Room not found."
             });
         }
 
-        if (room.players.has(client.uid)) {
+        if (room.status !== "lobby") {
             return send(client.ws, {
-                type: "room_joined",
-                ...roomInfo(room),
-                yourUid: client.uid
+                type: "error",
+                message: "Mission already started."
             });
         }
 
         if (room.players.size >= MAX_PLAYERS) {
             return send(client.ws, {
                 type: "error",
-                message: "Room is full (4/4)."
+                message: "Room is full."
             });
         }
 
-        if (client.roomCode) removePlayer(client);
+        removePlayer(client);
 
-        addPlayer(room, client);
+        if (!addPlayer(room, client)) return;
 
         send(client.ws, {
             type: "room_joined",
@@ -661,28 +640,18 @@ function processMessage(client, message) {
         return;
     }
 
-    // READY / UNREADY (works in quick match AND private rooms)
     if (type === "set_ready") {
         const room = rooms.get(client.roomCode);
         const player = room?.players.get(client.uid);
 
-        if (!room || !player) {
-            return send(client.ws, {
-                type: "error",
-                message: "You are not in a room."
-            });
-        }
-
-        if (room.status !== "lobby") return;
+        if (!room || !player || room.status !== "lobby") return;
 
         player.ready = Boolean(message.ready);
-
         roomUpdate(room);
         checkAllReady(room);
         return;
     }
 
-    // MOVEMENT INPUT
     if (type === "input") {
         const room = rooms.get(client.roomCode);
         const player = room?.players.get(client.uid);
@@ -708,21 +677,24 @@ function processMessage(client, message) {
         return;
     }
 
-    // ATTACK / SPECIAL / REVIVE
     if (["attack", "special", "revive"].includes(type)) {
         const room = rooms.get(client.roomCode);
         const player = room?.players.get(client.uid);
 
         if (!room || !player) return;
 
-        if (type === "attack") handleAttack(room, player);
+        if (type === "attack") {
+            const angle = Number(message.angle);
+            if (Number.isFinite(angle)) player.angle = angle;
+            handleAttack(room, player);
+        }
+
         if (type === "special") handleSpecial(room, player);
         if (type === "revive") handleRevive(room, player);
 
         return;
     }
 
-    // ROOM INFO
     if (type === "get_room") {
         const room = rooms.get(client.roomCode);
 
@@ -736,7 +708,6 @@ function processMessage(client, message) {
         return;
     }
 
-    // LEAVE ROOM
     if (type === "leave_room") {
         removePlayer(client);
         send(client.ws, { type: "room_left" });
@@ -796,7 +767,6 @@ function tickRoom(room, now) {
         if (bot.dead) continue;
 
         const targets = [...room.players.values()].filter(p => !p.downed);
-
         if (!targets.length) continue;
 
         let target = targets[0];
@@ -857,6 +827,30 @@ function tickRoom(room, now) {
                     type: "player_downed",
                     uid: target.uid,
                     by: bot.id
+                });
+            }
+        }
+    }
+
+    // COIN PICKUPS
+    // Shared coins: the first player who touches a coin gets it.
+    for (const p of room.players.values()) {
+        if (p.downed) continue;
+
+        for (let i = room.coins.length - 1; i >= 0; i--) {
+            const coin = room.coins[i];
+
+            if (distance(p, coin) <= 42) {
+                p.coins = (p.coins || 0) + coin.value;
+                room.coins.splice(i, 1);
+
+                broadcast(room, {
+                    type: "coin_collected",
+                    uid: p.uid,
+                    value: coin.value,
+                    total: p.coins,
+                    x: coin.x,
+                    y: coin.y
                 });
             }
         }
