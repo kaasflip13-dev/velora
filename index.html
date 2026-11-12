@@ -1,120 +1,64 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#03040b">
-
     <title>VÉLORA — The World That Listens</title>
-
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
     <link rel="stylesheet" href="./style.css">
 </head>
-
 <body>
-
-    <!-- MAIN MENU -->
     <div id="menu" class="menu">
-
         <div class="menu-content">
-
             <div class="game-logo">
                 <h1>VÉLORA</h1>
                 <p>THE WORLD THAT LISTENS</p>
             </div>
 
-            <div class="menu-subtitle">
-                AN UNKNOWN WORLD AWAITS
-            </div>
+            <div class="menu-subtitle">AN UNKNOWN WORLD AWAITS</div>
 
-            <!-- LOGIN AREA -->
             <div id="loginArea" class="auth-area">
-
-                <button id="googleButton" class="menu-button">
-                    SIGN IN WITH GOOGLE
-                </button>
-
+                <button id="googleButton" class="menu-button">SIGN IN WITH GOOGLE</button>
                 <div id="loginStatus" class="menu-message"></div>
-
             </div>
 
-            <!-- LOGGED IN AREA -->
             <div id="loggedInArea" hidden>
-
                 <div id="playerName"></div>
                 <div id="playerEmail"></div>
-
-                <button id="logoutButton" class="menu-button">
-                    SIGN OUT
-                </button>
-
+                <button id="logoutButton" class="menu-button">SIGN OUT</button>
             </div>
 
-            <button id="startButton" class="main-button">
-                ENTER THE WORLD
-            </button>
+            <button id="startButton" class="main-button">ENTER THE WORLD</button>
+            <button id="newGameButton" class="menu-button">NEW GAME</button>
 
-            <button id="newGameButton" class="menu-button">
-                NEW GAME
-            </button>
-
-            <div class="objective">
-                FIND THE LOST MEMORIES
-            </div>
-
-            <div class="menu-footer">
-                A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM
-            </div>
-
+            <div class="objective">FIND THE LOST MEMORIES</div>
+            <div class="menu-footer">A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM</div>
         </div>
 
-        <!-- LEADERBOARD -->
         <section class="leaderboard">
-
             <h2>GLOBAL LEADERBOARD</h2>
-
             <p>THE EXPLORERS OF VÉLORA</p>
 
             <div id="playersList">
-                <div class="leaderboard-loading">
-                    Loading explorers...
-                </div>
+                <div class="leaderboard-loading">Loading explorers...</div>
             </div>
 
-            <!-- ANTI-CHEAT WARNING -->
             <div class="anti-cheat-warning">
                 <span class="anti-cheat-title">⚠ ANTI-CHEAT WARNING</span>
-
-                <p>
-                    Using hacks, exploits, or cheats to climb the leaderboard
-                    may result in a permanent ban from VÉLORA.
-                </p>
-
-                <span class="anti-cheat-tagline">
-                    PLAY FAIR. EARN YOUR PLACE.
-                </span>
+                <p>Using hacks, exploits, or cheats to climb the leaderboard may result in a permanent ban from VÉLORA.</p>
+                <span class="anti-cheat-tagline">PLAY FAIR. EARN YOUR PLACE.</span>
             </div>
-
         </section>
-
     </div>
 
-
-    <!-- GAME AREA -->
     <div id="gameUI" hidden>
-
         <canvas id="game"></canvas>
 
-        <!-- HUD -->
         <div class="hud">
-
             <div class="hud-left">
-
                 <div class="hud-panel">
                     <span class="hud-label">MEMORIES</span>
                     <span id="crystalCount">0 / 5</span>
@@ -122,7 +66,6 @@
 
                 <div class="hud-panel">
                     <span class="hud-label">HEALTH</span>
-
                     <div class="bar">
                         <div id="healthBar" class="bar-fill health-fill"></div>
                     </div>
@@ -130,16 +73,13 @@
 
                 <div class="hud-panel">
                     <span class="hud-label">ENERGY</span>
-
                     <div class="bar">
                         <div id="energyBar" class="bar-fill energy-fill"></div>
                     </div>
                 </div>
-
             </div>
 
             <div class="hud-right">
-
                 <div class="hud-panel">
                     <span class="hud-label">COINS</span>
                     <span id="coinsDisplay">🪙 0</span>
@@ -149,40 +89,25 @@
                     <span class="hud-label">SHOCKWAVE</span>
                     <span id="cooldown">READY</span>
                 </div>
-
             </div>
-
         </div>
 
         <div id="hint" class="game-message"></div>
-
         <div id="message" class="game-message" role="status" aria-live="polite"></div>
-
     </div>
 
-
-    <!-- WIN SCREEN -->
     <div id="winScreen" class="overlay" hidden>
-
         <div class="overlay-content">
-
             <h2>MEMORIES RESTORED</h2>
-
-            <p>
-                You have brought light back to VÉLORA.
-            </p>
-
-            <button id="restartButton" class="main-button">
-                PLAY AGAIN
-            </button>
-
+            <p>You have brought light back to VÉLORA.</p>
+            <button id="restartButton" class="main-button">PLAY AGAIN</button>
         </div>
-
     </div>
 
-
-    <!-- GAME SCRIPT -->
+    <!-- Single-player -->
     <script type="module" src="./app.js"></script>
 
+    <!-- Multiplayer -->
+    <script type="module" src="./multiplayer.js"></script>
 </body>
 </html>
