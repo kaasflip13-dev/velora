@@ -23,10 +23,15 @@ const TICK_MS = 50;
 const SNAPSHOT_MS = 100;
 const MISSION_TIME_MS = 180000;
 
-const allowedOrigins = (
-    process.env.ALLOWED_ORIGINS ||
-    "https://kaasflip13-dev.github.io"
-).split(",").map(x => x.trim()).filter(Boolean);
+// Built-in origins (VÉLORA + V-CLIENT) plus anything in ALLOWED_ORIGINS.
+const allowedOrigins = [...new Set([
+    "https://kaasflip13-dev.github.io",
+    "https://velora.partybag.com",
+    ...(process.env.ALLOWED_ORIGINS || "")
+        .split(",")
+        .map(x => x.trim().replace(/\/+$/, ""))
+        .filter(Boolean)
+])];
 
 // ======================================================
 // FIREBASE ADMIN
@@ -372,9 +377,11 @@ function startMission(room) {
         slot++;
     }
 
+    // NOTE: spread FIRST, otherwise missionSnapshot's own type: "snapshot"
+    // would overwrite "mission_started" and clients would never begin the mission.
     broadcast(room, {
-        type: "mission_started",
-        ...missionSnapshot(room)
+        ...missionSnapshot(room),
+        type: "mission_started"
     });
 
     return true;
