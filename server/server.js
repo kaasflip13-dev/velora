@@ -1,33 +1,24 @@
+
 import express from "express";
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 
-import {
-    cert,
-    getApps,
-    initializeApp
-} from "firebase-admin/app";
+import { cert, getApps, initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 
-import {
-    getAuth
-} from "firebase-admin/auth";
-
-// ============================================================
-// SERVER SETTINGS
-// ============================================================
+// ======================================================
+// VÉLORA CO-OP SERVER
+// 1-4 PLAYERS PER ROOM
+// ======================================================
 
 const PORT = Number(process.env.PORT || 10000);
 
-const WS_PATH = "/ws";
-
+const MIN_PLAYERS = 1;
 const MAX_PLAYERS = 4;
 const MAX_SERVER_PLAYERS = 10;
 
-const WORLD = {
-    width: 2400,
-    height: 1800
-};
+const WORLD = { width: 2400, height: 1800 };
 
 const TICK_MS = 50;
 const SNAPSHOT_MS = 100;
@@ -37,33 +28,19 @@ const MISSION_TIME_MS = 180000;
 const allowedOrigins = (
     process.env.ALLOWED_ORIGINS ||
     "https://kaasflip13-dev.github.io"
-)
-    .split(",")
-    .map(v => v.trim())
-    .filter(Boolean);
+).split(",").map(x => x.trim()).filter(Boolean);
 
-// ============================================================
+// ======================================================
 // FIREBASE ADMIN
-// ============================================================
+// ======================================================
 
-const serviceAccountRaw =
-    process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
 if (!serviceAccountRaw) {
-    throw new Error(
-        "Missing FIREBASE_SERVICE_ACCOUNT_JSON environment variable."
-    );
+    throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON");
 }
 
-let serviceAccount;
-
-try {
-    serviceAccount = JSON.parse(serviceAccountRaw);
-} catch {
-    throw new Error(
-        "FIREBASE_SERVICE_ACCOUNT_JSON must contain valid JSON."
-    );
-}
+const serviceAccount = JSON.parse(serviceAccountRaw);
 
 if (!getApps().length) {
     initializeApp({
@@ -73,18 +50,16 @@ if (!getApps().length) {
 
 const firebaseAuth = getAuth();
 
-// ============================================================
-// HTTP SERVER
-// ============================================================
+// ======================================================
+// HTTP
+// ======================================================
 
 const app = express();
 
 app.disable("x-powered-by");
 
 app.get("/", (_req, res) => {
-    res.status(200).send(
-        "VÉLORA co-op server is running."
-    );
+    res.send("VÉLORA CO-OP SERVER ONLINE");
 });
 
 app.get("/health", (_req, res) => {
@@ -92,10 +67,9 @@ app.get("/health", (_req, res) => {
         status: "ok",
         service: "velora-coop-multiplayer",
         rooms: rooms.size,
-        players: [...rooms.values()].reduce(
-            (n, room) => n + room.players.size,
-            0
-        ),
+        players: socketsByUid.size,
+        minimumPlayers: MIN_PLAYERS,
+        maximumPlayersPerRoom: MAX_PLAYERS,
         uptime: Math.floor(process.uptime())
     });
 });
@@ -104,55 +78,54 @@ const server = http.createServer(app);
 
 const wss = new WebSocketServer({
     noServer: true,
-    maxPayload: 16 * 1024
+    maxPayload: 16384
 });
 
-// ============================================================
-// SERVER STATE
-// ============================================================
+// ======================================================
+// STATE
+// ======================================================
 
 const rooms = new Map();
 const socketsByUid = new Map();
 
-// ============================================================
+// ======================================================
 // HELPERS
-// ============================================================
+// ======================================================
 
-function send(ws, payload) {
+function send(ws, data) {
     if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(payload));
+        ws.send(JSON.stringify(data));
     }
 }
 
-function broadcast(room, payload) {
+function broadcast(room, data) {
     for (const player of room.players.values()) {
-        send(player.ws, payload);
+        send(player.ws, data);
     }
 }
 
 function makeCode() {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
     let code;
 
     do {
-        const bytes = randomBytes(6);
-
-        code = [...bytes]
+        code = [...randomBytes(6)]
             .map(b => chars[b % chars.length])
             .join("");
-
     } while (rooms.has(code));
 
     return code;
 }
 
 function safeName(value) {
-    const name = String(value || "Explorer")
+    return String(value || "Explorer")
         .replace(/[<>\u0000-\u001f]/g, "")
-        .trim();
+        .trim()
+        .slice(0, 22) || "Explorer";
+}
 
-    return name.slice(0, 22) || "Explorer";
+function distance(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function publicPlayer(p) {
@@ -182,15 +155,13 @@ function roomInfo(room) {
     };
 }
 
-// ============================================================
-// ROOMS
-// ============================================================
+// ======================================================
+// ROOM MANAGEMENT
+// ======================================================
 
 function createRoom(mode, host) {
-    const code = makeCode();
-
     const room = {
-        code,
+        code: makeCode(),
         mode,
         status: "lobby",
         hostUid: host.uid,
@@ -199,19 +170,15 @@ function createRoom(mode, host) {
         createdAt: Date.now(),
         missionEndsAt: 0,
         lastSnapshotAt: 0,
-        matchTimer: null,
-        result: null
+        matchTimer: null
     };
 
-    rooms.set(code, room);
-
+    rooms.set(room.code, room);
     return room;
 }
 
 function addPlayer(room, client) {
-    if (room.players.size >= MAX_PLAYERS) {
-        return false;
-    }
+    if (room.players.size >= MAX_PLAYERS) return false;
 
     const slot = room.players.size;
 
@@ -226,10 +193,8 @@ function addPlayer(room, client) {
 
         hp: 100,
         maxHp: 100,
-
         downed: false,
         respawnAt: 0,
-
         kills: 0,
 
         input: {
@@ -244,11 +209,10 @@ function addPlayer(room, client) {
     });
 
     client.roomCode = room.code;
-
     return true;
 }
 
-function broadcastRoomUpdate(room) {
+function roomUpdate(room) {
     broadcast(room, {
         type: "room_update",
         ...roomInfo(room)
@@ -256,12 +220,9 @@ function broadcastRoomUpdate(room) {
 }
 
 function removeRoomIfEmpty(room) {
-    if (!room || room.players.size) return;
+    if (!room || room.players.size > 0) return;
 
-    if (room.matchTimer) {
-        clearTimeout(room.matchTimer);
-    }
-
+    if (room.matchTimer) clearTimeout(room.matchTimer);
     rooms.delete(room.code);
 }
 
@@ -269,7 +230,6 @@ function removePlayer(client) {
     if (!client?.roomCode) return;
 
     const room = rooms.get(client.roomCode);
-
     client.roomCode = null;
 
     if (!room) return;
@@ -277,11 +237,10 @@ function removePlayer(client) {
     room.players.delete(client.uid);
 
     if (room.hostUid === client.uid) {
-        room.hostUid =
-            room.players.keys().next().value || null;
+        room.hostUid = room.players.keys().next().value || null;
     }
 
-    if (!room.players.size) {
+    if (room.players.size === 0) {
         removeRoomIfEmpty(room);
         return;
     }
@@ -292,55 +251,35 @@ function removePlayer(client) {
         name: client.name
     });
 
-    broadcastRoomUpdate(room);
+    roomUpdate(room);
 }
 
-// ============================================================
-// BOT GENERATION
-// ============================================================
+// ======================================================
+// BOTS
+// ======================================================
 
 function createBots() {
     const bots = [];
-    const count = 14;
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < 14; i++) {
         const brute = i % 5 === 4;
         const scout = i % 4 === 1;
 
-        const hp = brute
-            ? 210
-            : scout
-                ? 65
-                : 110;
+        const hp = brute ? 210 : scout ? 65 : 110;
 
         bots.push({
             id: `bot-${i + 1}`,
-
-            kind: brute
-                ? "brute"
-                : scout
-                    ? "scout"
-                    : "stalker",
+            kind: brute ? "brute" : scout ? "scout" : "stalker",
 
             x: 980 + Math.random() * 1050,
             y: 180 + Math.random() * 1440,
 
             angle: Math.PI,
-
             hp,
             maxHp: hp,
 
-            speed: brute
-                ? 54
-                : scout
-                    ? 112
-                    : 78,
-
-            damage: brute
-                ? 17
-                : scout
-                    ? 7
-                    : 11,
+            speed: brute ? 54 : scout ? 112 : 78,
+            damage: brute ? 17 : scout ? 7 : 11,
 
             attackReadyAt: 0,
             hitUntil: 0,
@@ -351,9 +290,9 @@ function createBots() {
     return bots;
 }
 
-// ============================================================
-// MISSION SNAPSHOTS
-// ============================================================
+// ======================================================
+// SNAPSHOTS
+// ======================================================
 
 function missionSnapshot(room) {
     return {
@@ -361,10 +300,7 @@ function missionSnapshot(room) {
         code: room.code,
         status: room.status,
 
-        timeLeft: Math.max(
-            0,
-            room.missionEndsAt - Date.now()
-        ),
+        timeLeft: Math.max(0, room.missionEndsAt - Date.now()),
 
         players: [...room.players.values()].map(publicPlayer),
 
@@ -384,39 +320,38 @@ function missionSnapshot(room) {
     };
 }
 
-// ============================================================
-// START / END MISSION
-// ============================================================
+// ======================================================
+// START MISSION — MINIMUM 1 PLAYER
+// ======================================================
 
 function startMission(room) {
-    if (
-        !room ||
-        room.status !== "lobby" ||
-        room.players.size < 1
-    ) {
-        return false;
-    }
+    if (!room) return false;
+    if (room.status !== "lobby") return false;
+
+    // IMPORTANT: one player is enough!
+    if (room.players.size < MIN_PLAYERS) return false;
 
     if (room.matchTimer) {
         clearTimeout(room.matchTimer);
+        room.matchTimer = null;
     }
 
     room.status = "mission";
     room.bots = createBots();
-
     room.missionEndsAt = Date.now() + MISSION_TIME_MS;
 
-    for (const p of room.players.values()) {
-        p.x = 300 + Math.random() * 90;
-        p.y = 850 + Math.random() * 100;
+    let slot = 0;
 
+    for (const p of room.players.values()) {
+        p.x = 300 + slot * 55;
+        p.y = 850 + (slot % 2 ? 45 : -45);
         p.hp = 100;
         p.downed = false;
         p.respawnAt = 0;
         p.kills = 0;
-
         p.attackReadyAt = 0;
         p.specialReadyAt = 0;
+        slot++;
     }
 
     broadcast(room, {
@@ -431,46 +366,25 @@ function finishMission(room, result) {
     if (room.status !== "mission") return;
 
     room.status = "finished";
-    room.result = result;
 
     broadcast(room, {
         type: "mission_end",
         result,
-
         remainingBots: room.bots.filter(b => !b.dead).length,
         totalBots: room.bots.length,
-
         players: [...room.players.values()].map(publicPlayer)
     });
 }
 
-// ============================================================
-// COMBAT HELPERS
-// ============================================================
-
-function distance(a, b) {
-    return Math.hypot(
-        a.x - b.x,
-        a.y - b.y
-    );
-}
+// ======================================================
+// COMBAT
+// ======================================================
 
 function angleDelta(a, b) {
     let d = (a - b + Math.PI) % (Math.PI * 2);
-
     if (d < 0) d += Math.PI * 2;
-
     return Math.abs(d - Math.PI);
 }
-
-function activePlayers(room) {
-    return [...room.players.values()]
-        .filter(p => !p.downed);
-}
-
-// ============================================================
-// MELEE ATTACK
-// ============================================================
 
 function handleAttack(room, player) {
     const now = Date.now();
@@ -479,9 +393,7 @@ function handleAttack(room, player) {
         room.status !== "mission" ||
         player.downed ||
         now < player.attackReadyAt
-    ) {
-        return;
-    }
+    ) return;
 
     player.attackReadyAt = now + 430;
 
@@ -492,7 +404,6 @@ function handleAttack(room, player) {
         if (bot.dead) continue;
 
         const d = distance(player, bot);
-
         if (d > 168) continue;
 
         const angle = Math.atan2(
@@ -500,9 +411,7 @@ function handleAttack(room, player) {
             bot.x - player.x
         );
 
-        if (angleDelta(angle, player.angle) > 0.78) {
-            continue;
-        }
+        if (angleDelta(angle, player.angle) > 0.78) continue;
 
         if (d < best) {
             best = d;
@@ -510,11 +419,9 @@ function handleAttack(room, player) {
         }
     }
 
-    let damage = 0;
+    const damage = target ? 42 : 0;
 
     if (target) {
-        damage = 42;
-
         target.hp = Math.max(0, target.hp - damage);
         target.hitUntil = now + 180;
 
@@ -526,19 +433,12 @@ function handleAttack(room, player) {
 
     broadcast(room, {
         type: "attack_event",
-
         uid: player.uid,
 
-        from: {
-            x: player.x,
-            y: player.y
-        },
+        from: { x: player.x, y: player.y },
 
         to: target
-            ? {
-                x: target.x,
-                y: target.y
-            }
+            ? { x: target.x, y: target.y }
             : {
                 x: player.x + Math.cos(player.angle) * 135,
                 y: player.y + Math.sin(player.angle) * 135
@@ -551,10 +451,6 @@ function handleAttack(room, player) {
     });
 }
 
-// ============================================================
-// SPECIAL TEAM PULSE
-// ============================================================
-
 function handleSpecial(room, player) {
     const now = Date.now();
 
@@ -562,9 +458,7 @@ function handleSpecial(room, player) {
         room.status !== "mission" ||
         player.downed ||
         now < player.specialReadyAt
-    ) {
-        return;
-    }
+    ) return;
 
     player.specialReadyAt = now + 8500;
 
@@ -572,12 +466,7 @@ function handleSpecial(room, player) {
     const hitBots = [];
 
     for (const bot of room.bots) {
-        if (
-            bot.dead ||
-            distance(player, bot) > radius
-        ) {
-            continue;
-        }
+        if (bot.dead || distance(player, bot) > radius) continue;
 
         const damage = 95;
 
@@ -608,18 +497,14 @@ function handleSpecial(room, player) {
     });
 }
 
-// ============================================================
-// REVIVE TEAMMATE
-// ============================================================
-
 function handleRevive(room, player) {
+    const now = Date.now();
+
     if (
         room.status !== "mission" ||
         player.downed ||
-        Date.now() - player.lastReviveAt < 1100
-    ) {
-        return;
-    }
+        now - player.lastReviveAt < 1100
+    ) return;
 
     const target = [...room.players.values()].find(
         p => p.downed && distance(player, p) < 95
@@ -627,8 +512,7 @@ function handleRevive(room, player) {
 
     if (!target) return;
 
-    player.lastReviveAt = Date.now();
-
+    player.lastReviveAt = now;
     target.downed = false;
     target.hp = 45;
     target.respawnAt = 0;
@@ -642,37 +526,29 @@ function handleRevive(room, player) {
     });
 }
 
-// ============================================================
-// INCOMING CLIENT MESSAGES
-// ============================================================
+// ======================================================
+// CLIENT COMMANDS
+// ======================================================
 
 function processMessage(client, message) {
     const type = String(message?.type || "");
 
-    // --------------------------------------------------------
     // QUICK MATCH
-    // --------------------------------------------------------
-
     if (type === "quick_match") {
-        if (client.roomCode) {
-            removePlayer(client);
-        }
+        if (client.roomCode) removePlayer(client);
 
-        let room = [...rooms.values()].find(
-            r =>
-                r.mode === "quick" &&
-                r.status === "lobby" &&
-                r.players.size < MAX_PLAYERS
+        let room = [...rooms.values()].find(r =>
+            r.mode === "quick" &&
+            r.status === "lobby" &&
+            r.players.size < MAX_PLAYERS
         );
 
-        if (!room) {
-            room = createRoom("quick", client);
-        }
+        if (!room) room = createRoom("quick", client);
 
         if (!addPlayer(room, client)) {
             return send(client.ws, {
                 type: "error",
-                message: "This team is full. Try again."
+                message: "Team is full."
             });
         }
 
@@ -682,22 +558,22 @@ function processMessage(client, message) {
             yourUid: client.uid
         });
 
-        broadcastRoomUpdate(room);
+        roomUpdate(room);
 
+        // Four players? Start immediately.
         if (room.players.size >= MAX_PLAYERS) {
             startMission(room);
-
         } else if (!room.matchTimer) {
+            // Otherwise wait up to 16 seconds.
             room.matchTimer = setTimeout(() => {
                 room.matchTimer = null;
 
+                // Start with whoever joined, even just one!
                 if (
                     room.status === "lobby" &&
-                    room.players.size
+                    room.players.size >= MIN_PLAYERS
                 ) {
                     startMission(room);
-                } else {
-                    removeRoomIfEmpty(room);
                 }
             }, MATCH_START_MS);
 
@@ -707,17 +583,11 @@ function processMessage(client, message) {
         return;
     }
 
-    // --------------------------------------------------------
     // CREATE PRIVATE ROOM
-    // --------------------------------------------------------
-
     if (type === "create_room") {
-        if (client.roomCode) {
-            removePlayer(client);
-        }
+        if (client.roomCode) removePlayer(client);
 
         const room = createRoom("private", client);
-
         addPlayer(room, client);
 
         send(client.ws, {
@@ -726,15 +596,11 @@ function processMessage(client, message) {
             yourUid: client.uid
         });
 
-        broadcastRoomUpdate(room);
-
+        roomUpdate(room);
         return;
     }
 
-    // --------------------------------------------------------
     // JOIN PRIVATE ROOM
-    // --------------------------------------------------------
-
     if (type === "join_room") {
         const code = String(message.code || "")
             .toUpperCase()
@@ -765,13 +631,11 @@ function processMessage(client, message) {
         if (room.players.size >= MAX_PLAYERS) {
             return send(client.ws, {
                 type: "error",
-                message: "This room is full (4/4)."
+                message: "Room is full (4/4)."
             });
         }
 
-        if (client.roomCode) {
-            removePlayer(client);
-        }
+        if (client.roomCode) removePlayer(client);
 
         addPlayer(room, client);
 
@@ -786,15 +650,11 @@ function processMessage(client, message) {
             player: publicPlayer(room.players.get(client.uid))
         });
 
-        broadcastRoomUpdate(room);
-
+        roomUpdate(room);
         return;
     }
 
-    // --------------------------------------------------------
-    // PRIVATE HOST STARTS MISSION
-    // --------------------------------------------------------
-
+    // START PRIVATE MISSION
     if (type === "start_mission") {
         const room = rooms.get(client.roomCode);
 
@@ -808,42 +668,37 @@ function processMessage(client, message) {
         if (room.hostUid !== client.uid) {
             return send(client.ws, {
                 type: "error",
-                message: "Only the room host can start the mission."
+                message: "Only the host can start."
             });
         }
 
-        if (room.status !== "lobby") return;
+        // Host can start with ONE player.
+        if (room.players.size < MIN_PLAYERS) {
+            return send(client.ws, {
+                type: "error",
+                message: "At least one player is required."
+            });
+        }
 
         startMission(room);
-
         return;
     }
 
-    // --------------------------------------------------------
-    // PLAYER INPUT
-    // --------------------------------------------------------
-
+    // MOVEMENT INPUT
     if (type === "input") {
         const room = rooms.get(client.roomCode);
         const player = room?.players.get(client.uid);
 
-        if (
-            !room ||
-            room.status !== "mission" ||
-            !player ||
-            player.downed
-        ) {
+        if (!room || room.status !== "mission" || !player || player.downed) {
             return;
         }
 
         const mx = Number(message.moveX) || 0;
         const my = Number(message.moveY) || 0;
-
         const mag = Math.hypot(mx, my) || 1;
 
         player.input.x = Math.max(-1, Math.min(1, mx / mag));
         player.input.y = Math.max(-1, Math.min(1, my / mag));
-
         player.input.sprint = Boolean(message.sprint);
 
         const angle = Number(message.angle);
@@ -855,39 +710,21 @@ function processMessage(client, message) {
         return;
     }
 
-    // --------------------------------------------------------
-    // COMBAT COMMANDS
-    // --------------------------------------------------------
-
-    if (
-        type === "attack" ||
-        type === "special" ||
-        type === "revive"
-    ) {
+    // ATTACK / SPECIAL / REVIVE
+    if (["attack", "special", "revive"].includes(type)) {
         const room = rooms.get(client.roomCode);
         const player = room?.players.get(client.uid);
 
         if (!room || !player) return;
 
-        if (type === "attack") {
-            handleAttack(room, player);
-        }
-
-        if (type === "special") {
-            handleSpecial(room, player);
-        }
-
-        if (type === "revive") {
-            handleRevive(room, player);
-        }
+        if (type === "attack") handleAttack(room, player);
+        if (type === "special") handleSpecial(room, player);
+        if (type === "revive") handleRevive(room, player);
 
         return;
     }
 
-    // --------------------------------------------------------
-    // REQUEST ROOM INFO
-    // --------------------------------------------------------
-
+    // ROOM INFO
     if (type === "get_room") {
         const room = rooms.get(client.roomCode);
 
@@ -901,82 +738,66 @@ function processMessage(client, message) {
         return;
     }
 
-    // --------------------------------------------------------
     // LEAVE ROOM
-    // --------------------------------------------------------
-
     if (type === "leave_room") {
         removePlayer(client);
-
-        send(client.ws, {
-            type: "room_left"
-        });
-
+        send(client.ws, { type: "room_left" });
         return;
     }
 
     send(client.ws, {
         type: "error",
-        message: "Unknown multiplayer command."
+        message: "Unknown multiplayer command: " + type
     });
 }
 
-// ============================================================
-// SERVER GAME LOOP
-// ============================================================
+// ======================================================
+// GAME TICK
+// ======================================================
 
 function tickRoom(room, now) {
     if (room.status !== "mission") return;
 
     const dt = TICK_MS / 1000;
 
-    // Player movement
-    for (const player of room.players.values()) {
-        if (player.downed) {
-            if (now >= player.respawnAt) {
-                player.downed = false;
-                player.hp = 55;
-
-                player.x = 300 + Math.random() * 70;
-                player.y = 850 + Math.random() * 120;
+    // PLAYER MOVEMENT
+    for (const p of room.players.values()) {
+        if (p.downed) {
+            if (now >= p.respawnAt) {
+                p.downed = false;
+                p.hp = 55;
+                p.x = 300 + Math.random() * 70;
+                p.y = 850 + Math.random() * 120;
 
                 broadcast(room, {
                     type: "player_respawned",
-                    uid: player.uid,
-                    x: player.x,
-                    y: player.y
+                    uid: p.uid,
+                    x: p.x,
+                    y: p.y
                 });
             }
 
             continue;
         }
 
-        const speed = player.input.sprint
-            ? 330
-            : 230;
+        const speed = p.input.sprint ? 330 : 230;
 
-        player.x = Math.max(
+        p.x = Math.max(
             65,
-            Math.min(
-                WORLD.width - 65,
-                player.x + player.input.x * speed * dt
-            )
+            Math.min(WORLD.width - 65, p.x + p.input.x * speed * dt)
         );
 
-        player.y = Math.max(
+        p.y = Math.max(
             65,
-            Math.min(
-                WORLD.height - 65,
-                player.y + player.input.y * speed * dt
-            )
+            Math.min(WORLD.height - 65, p.y + p.input.y * speed * dt)
         );
     }
 
-    // Bot AI
+    // BOT AI
     for (const bot of room.bots) {
         if (bot.dead) continue;
 
-        const targets = activePlayers(room);
+        const targets = [...room.players.values()].filter(p => !p.downed);
 
         if (!targets.length) continue;
 
@@ -987,8 +808,8 @@ function tickRoom(room, now) {
             const d = distance(bot, p);
 
             if (d < best) {
-                target = p;
                 best = d;
+                target = p;
             }
         }
 
@@ -997,9 +818,7 @@ function tickRoom(room, now) {
             target.x - bot.x
         );
 
-        const attackRange = bot.kind === "brute"
-            ? 49
-            : 39;
+        const attackRange = bot.kind === "brute" ? 49 : 39;
 
         if (best > attackRange) {
             bot.x = Math.max(
@@ -1020,15 +839,10 @@ function tickRoom(room, now) {
 
         } else if (now >= bot.attackReadyAt) {
             bot.attackReadyAt = now + (
-                bot.kind === "scout"
-                    ? 950
-                    : 1250
+                bot.kind === "scout" ? 950 : 1250
             );
 
-            target.hp = Math.max(
-                0,
-                target.hp - bot.damage
-            );
+            target.hp = Math.max(0, target.hp - bot.damage);
 
             broadcast(room, {
                 type: "player_hit",
@@ -1050,28 +864,26 @@ function tickRoom(room, now) {
         }
     }
 
-    // Mission victory or timeout
+    // WIN / TIMEOUT
     if (room.bots.every(b => b.dead)) {
         finishMission(room, "victory");
-
     } else if (now >= room.missionEndsAt) {
         finishMission(room, "defeat");
     }
 
-    // Broadcast shared game state
+    // SNAPSHOT
     if (
         room.status === "mission" &&
         now - room.lastSnapshotAt >= SNAPSHOT_MS
     ) {
         room.lastSnapshotAt = now;
-
         broadcast(room, missionSnapshot(room));
     }
 }
 
-// ============================================================
+// ======================================================
 // WEBSOCKET UPGRADE
-// ============================================================
+// ======================================================
 
 server.on("upgrade", (request, socket, head) => {
     const origin = request.headers.origin;
@@ -1082,29 +894,22 @@ server.on("upgrade", (request, socket, head) => {
     ).pathname;
 
     if (
-        pathname !== WS_PATH ||
+        pathname !== "/ws" ||
         (origin && !allowedOrigins.includes(origin))
     ) {
-        socket.write(
-            "HTTP/1.1 403 Forbidden\r\n\r\n"
-        );
-
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
         socket.destroy();
-
         return;
     }
 
-    wss.handleUpgrade(
-        request,
-        socket,
-        head,
-        ws => wss.emit("connection", ws, request)
-    );
+    wss.handleUpgrade(request, socket, head, ws => {
+        wss.emit("connection", ws, request);
+    });
 });
 
-// ============================================================
-// WEBSOCKET CONNECTION + FIREBASE AUTH
-// ============================================================
+// ======================================================
+// CONNECTION + FIREBASE AUTH
+// ======================================================
 
 wss.on("connection", ws => {
     const client = {
@@ -1119,7 +924,7 @@ wss.on("connection", ws => {
         if (!client.authenticated) {
             send(ws, {
                 type: "error",
-                message: "Authentication timed out. Please reconnect."
+                message: "Authentication timed out."
             });
 
             ws.close(4001, "Authentication required");
@@ -1139,21 +944,15 @@ wss.on("connection", ws => {
         }
 
         if (!client.authenticated) {
-            if (
-                message.type !== "auth" ||
-                typeof message.token !== "string"
-            ) {
-                ws.close(4001, "Send Firebase auth token first");
+            if (message.type !== "auth" || typeof message.token !== "string") {
+                ws.close(4001, "Send Firebase token first");
                 return;
             }
 
             try {
-                const decoded = await firebaseAuth.verifyIdToken(
-                    message.token
-                );
+                const decoded = await firebaseAuth.verifyIdToken(message.token);
 
                 client.uid = decoded.uid;
-
                 client.name = safeName(
                     decoded.name ||
                     decoded.email?.split("@")[0] ||
@@ -1162,29 +961,21 @@ wss.on("connection", ws => {
 
                 const previous = socketsByUid.get(client.uid);
 
-                if (
-                    !previous &&
-                    socketsByUid.size >= MAX_SERVER_PLAYERS
-                ) {
+                if (!previous && socketsByUid.size >= MAX_SERVER_PLAYERS) {
                     send(ws, {
                         type: "error",
-                        message: "This VÉLORA server is full (10/10 players). Try again later."
+                        message: "Server full (10/10 players)."
                     });
 
                     ws.close(4029, "Server full");
-
                     return;
                 }
 
                 if (previous && previous !== ws) {
-                    previous.close(
-                        4002,
-                        "Signed in from another tab"
-                    );
+                    previous.close(4002, "Signed in from another tab");
                 }
 
                 client.authenticated = true;
-
                 clearTimeout(authTimeout);
 
                 socketsByUid.set(client.uid, ws);
@@ -1196,14 +987,11 @@ wss.on("connection", ws => {
                 });
 
             } catch (error) {
-                console.warn(
-                    "WebSocket auth failed:",
-                    error?.message || error
-                );
+                console.warn("Firebase auth failed:", error.message);
 
                 send(ws, {
                     type: "error",
-                    message: "Firebase authentication failed. Sign in again."
+                    message: "Firebase authentication failed."
                 });
 
                 ws.close(4003, "Invalid token");
@@ -1221,16 +1009,12 @@ wss.on("connection", ws => {
 
         try {
             processMessage(client, message);
-
         } catch (error) {
-            console.error(
-                "Message handler error:",
-                error
-            );
+            console.error("Message error:", error);
 
             send(ws, {
                 type: "error",
-                message: "The server could not process that action."
+                message: "Server could not process that action."
             });
         }
     });
@@ -1249,16 +1033,13 @@ wss.on("connection", ws => {
     });
 
     ws.on("error", error => {
-        console.warn(
-            "WebSocket error:",
-            error.message
-        );
+        console.warn("WebSocket error:", error.message);
     });
 });
 
-// ============================================================
-// SERVER TICK
-// ============================================================
+// ======================================================
+// SERVER LOOP
+// ======================================================
 
 const tick = setInterval(() => {
     const now = Date.now();
@@ -1270,27 +1051,23 @@ const tick = setInterval(() => {
 
 tick.unref?.();
 
-// ============================================================
-// START SERVER
-// ============================================================
+// ======================================================
+// START
+// ======================================================
 
 server.listen(PORT, "0.0.0.0", () => {
-    console.log(
-        `VÉLORA co-op server listening on ${PORT}`
-    );
+    console.log(`VÉLORA CO-OP SERVER running on port ${PORT}`);
 });
 
-// ============================================================
+// ======================================================
 // SHUTDOWN
-// ============================================================
+// ======================================================
 
 function shutdown() {
     clearInterval(tick);
 
     for (const room of rooms.values()) {
-        if (room.matchTimer) {
-            clearTimeout(room.matchTimer);
-        }
+        if (room.matchTimer) clearTimeout(room.matchTimer);
 
         broadcast(room, {
             type: "error",
@@ -1302,10 +1079,7 @@ function shutdown() {
         server.close(() => process.exit(0));
     });
 
-    setTimeout(
-        () => process.exit(0),
-        5000
-    ).unref();
+    setTimeout(() => process.exit(0), 5000).unref();
 }
 
 process.on("SIGTERM", shutdown);
