@@ -1,4 +1,3 @@
-
 import express from "express";
 import http from "node:http";
 import { randomBytes } from "node:crypto";
@@ -22,7 +21,6 @@ const WORLD = { width: 2400, height: 1800 };
 
 const TICK_MS = 50;
 const SNAPSHOT_MS = 100;
-const MATCH_START_MS = 16000;
 const MISSION_TIME_MS = 180000;
 
 const allowedOrigins = (
@@ -151,7 +149,10 @@ function roomInfo(room) {
         hostUid: room.hostUid,
         maxPlayers: MAX_PLAYERS,
         playerCount: room.players.size,
-        players: [...room.players.values()].map(publicPlayer)
+        players: [...room.players.values()].map(p => ({
+            ...publicPlayer(p),
+            ready: Boolean(p.ready)
+        }))
     };
 }
 
@@ -196,6 +197,7 @@ function addPlayer(room, client) {
         downed: false,
         respawnAt: 0,
         kills: 0,
+        ready: false,
 
         input: {
             x: 0,
@@ -217,6 +219,19 @@ function roomUpdate(room) {
         type: "room_update",
         ...roomInfo(room)
     });
+}
+
+// Start the mission as soon as EVERY player in the lobby is ready.
+// Minimum 1 player, maximum 4 (MAX_PLAYERS is enforced in addPlayer).
+function checkAllReady(room) {
+    if (!room || room.status !== "lobby") return;
+    if (room.players.size < MIN_PLAYERS) return;
+
+    for (const p of room.players.values()) {
+        if (!p.ready) return;
+    }
+
+    startMission(room);
 }
 
 function removeRoomIfEmpty(room) {
@@ -252,6 +267,9 @@ function removePlayer(client) {
     });
 
     roomUpdate(room);
+
+    // If the only player who wasn't ready just left, the rest can go.
+    checkAllReady(room);
 }
 
 // ======================================================
@@ -560,26 +578,8 @@ function processMessage(client, message) {
 
         roomUpdate(room);
 
-        // Four players? Start immediately.
-        if (room.players.size >= MAX_PLAYERS) {
-            startMission(room);
-        } else if (!room.matchTimer) {
-            // Otherwise wait up to 16 seconds.
-            room.matchTimer = setTimeout(() => {
-                room.matchTimer = null;
-
-                // Start with whoever joined, even just one!
-                if (
-                    room.status === "lobby" &&
-                    room.players.size >= MIN_PLAYERS
-                ) {
-                    startMission(room);
-                }
-            }, MATCH_START_MS);
-
-            room.matchTimer.unref?.();
-        }
-
+        // No timer and no auto-start: the mission begins when
+        // everybody in the room has clicked READY.
         return;
     }
 
@@ -654,33 +654,24 @@ function processMessage(client, message) {
         return;
     }
 
-    // START PRIVATE MISSION
-    if (type === "start_mission") {
+    // READY / UNREADY (works in quick match AND private rooms)
+    if (type === "set_ready") {
         const room = rooms.get(client.roomCode);
+        const player = room?.players.get(client.uid);
 
-        if (!room || room.mode !== "private") {
+        if (!room || !player) {
             return send(client.ws, {
                 type: "error",
-                message: "You are not in a private room."
+                message: "You are not in a room."
             });
         }
 
-        if (room.hostUid !== client.uid) {
-            return send(client.ws, {
-                type: "error",
-                message: "Only the host can start."
-            });
-        }
+        if (room.status !== "lobby") return;
 
-        // Host can start with ONE player.
-        if (room.players.size < MIN_PLAYERS) {
-            return send(client.ws, {
-                type: "error",
-                message: "At least one player is required."
-            });
-        }
+        player.ready = Boolean(message.ready);
 
-        startMission(room);
+        roomUpdate(room);
+        checkAllReady(room);
         return;
     }
 
