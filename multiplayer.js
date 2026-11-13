@@ -3,6 +3,7 @@
    VÉLORA — MULTIPLAYER CLIENT
    Firebase Authentication + Render WebSocket
    1–4 PLAYERS | CO-OP BLASTERS
+   HOLD LEFT MOUSE TO SHOOT
    ========================================================= */
 
 import {
@@ -45,24 +46,25 @@ const WORLD = {
 };
 
 const MAX_PLAYERS = 4;
+const SHOOT_COOLDOWN = 330;
 
 /* =========================================================
    STATE
    ========================================================= */
 
 let signedInUser = auth.currentUser || null;
-let authReady = false;
 
 let socket = null;
 let socketAuthenticated = false;
 let connectingPromise = null;
 
 let room = null;
+
 let snapshot = {
     players: [],
     bots: [],
     coins: [],
-    timeLeft: 0,
+    timeLeft: 180,
     remainingBots: 0
 };
 
@@ -76,6 +78,7 @@ let ctx = null;
 let rafId = 0;
 let lastFrame = 0;
 let lastInputSend = 0;
+let lastShot = 0;
 
 let camera = { x: 0, y: 0 };
 let aimAngle = 0;
@@ -85,7 +88,6 @@ let mouseX = 0;
 let mouseY = 0;
 
 let effects = [];
-let particles = [];
 
 let damageFlash = 0;
 let screenShake = 0;
@@ -118,7 +120,6 @@ let mpPanel;
 let quickButton;
 let createButton;
 let joinButton;
-let joinButtonInput;
 let roomCodeInput;
 let menuStatus;
 
@@ -132,8 +133,6 @@ let startButton;
 let leaveButton;
 let copyButton;
 
-let missionResult;
-
 /* =========================================================
    HELPERS
    ========================================================= */
@@ -143,11 +142,11 @@ function $(id) {
 }
 
 function sendMessage(type, data = {}) {
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-        return false;
-    }
-
-    if (!socketAuthenticated && type !== "auth") {
+    if (
+        !socket ||
+        socket.readyState !== WebSocket.OPEN ||
+        !socketAuthenticated
+    ) {
         return false;
     }
 
@@ -170,7 +169,7 @@ function setMenuStatus(message, error = false) {
 
 function showToast(message) {
     toastText = message;
-    toastTimer = 2.5;
+    toastTimer = 2.2;
 }
 
 function escapeHTML(value) {
@@ -187,6 +186,13 @@ function getMyPlayer() {
     return snapshot.players.find(
         player => player.uid === signedInUser?.uid
     );
+}
+
+function getTimeInSeconds(value) {
+    const time = Number(value || 0);
+
+    // Server sends milliseconds.
+    return time > 1000 ? time / 1000 : time;
 }
 
 /* =========================================================
@@ -325,13 +331,8 @@ function addStyle() {
             font-size: 12px;
         }
 
-        .mp-ready {
-            color: #6dffb0;
-        }
-
-        .mp-not-ready {
-            color: #ffc36d;
-        }
+        .mp-ready { color: #6dffb0; }
+        .mp-not-ready { color: #ffc36d; }
 
         #mpLobbyButtons {
             display: grid;
@@ -533,13 +534,11 @@ function buildMenu() {
             </button>
         </div>
 
-        <div id="mpMenuStatus">
-            Checking sign-in...
-        </div>
+        <div id="mpMenuStatus">Checking sign-in...</div>
 
         <div id="mpLobby">
             <div style="font-size:10px;color:#9db4c8;letter-spacing:2px">
-                PRIVATE ROOM CODE
+                ROOM CODE
             </div>
 
             <div id="mpRoomCode">------</div>
@@ -553,17 +552,9 @@ function buildMenu() {
             <div id="mpLobbyPlayers"></div>
 
             <div id="mpLobbyButtons">
-                <button class="mp-button" id="mpCopyCode">
-                    COPY CODE
-                </button>
-
-                <button class="mp-button primary" id="mpReadyToggle">
-                    READY
-                </button>
-
-                <button class="mp-button" id="mpLeaveRoom">
-                    LEAVE ROOM
-                </button>
+                <button class="mp-button" id="mpCopyCode">COPY CODE</button>
+                <button class="mp-button primary" id="mpReadyToggle">READY</button>
+                <button class="mp-button" id="mpLeaveRoom">LEAVE ROOM</button>
             </div>
         </div>
     `;
@@ -606,9 +597,7 @@ function buildMenu() {
     });
 
     roomCodeInput.addEventListener("keydown", event => {
-        if (event.key === "Enter") {
-            joinButton.click();
-        }
+        if (event.key === "Enter") joinButton.click();
     });
 
     copyButton.addEventListener("click", async () => {
@@ -618,7 +607,7 @@ function buildMenu() {
             await navigator.clipboard.writeText(room.code);
             setMenuStatus("ROOM CODE COPIED.");
         } catch {
-            setMenuStatus("COPY FAILED. CODE: " + room.code, true);
+            setMenuStatus("ROOM CODE: " + room.code);
         }
     });
 
@@ -660,6 +649,17 @@ function updateAuthButtons() {
     }
 }
 
+function showMainMenu() {
+    if (stage) stage.style.display = "none";
+
+    if (menu) menu.style.display = "";
+    if (gameUI) gameUI.style.display = "";
+
+    if (lobbyBox && room) {
+        lobbyBox.style.display = "block";
+    }
+}
+
 /* =========================================================
    AUTH + WEBSOCKET
    ========================================================= */
@@ -679,16 +679,17 @@ function connectServer() {
         return Promise.resolve();
     }
 
-    if (connectingPromise) {
-        return connectingPromise;
-    }
+    if (connectingPromise) return connectingPromise;
 
     connectingPromise = new Promise(async (resolve, reject) => {
         let finished = false;
+        let timeout;
 
-        const finish = (error) => {
+        const finish = error => {
             if (finished) return;
             finished = true;
+
+            clearTimeout(timeout);
             connectingPromise = null;
 
             if (error) reject(error);
@@ -708,7 +709,7 @@ function connectServer() {
 
             socket = new WebSocket(SERVER_URL);
 
-            const timeout = setTimeout(() => {
+            timeout = setTimeout(() => {
                 finish(new Error("Server connection timed out."));
                 socket?.close();
             }, 15000);
@@ -733,12 +734,13 @@ function connectServer() {
 
                 if (message.type === "authenticated") {
                     socketAuthenticated = true;
-                    clearTimeout(timeout);
                     finish();
                 }
 
-                if (message.type === "error" && !socketAuthenticated) {
-                    clearTimeout(timeout);
+                if (
+                    message.type === "error" &&
+                    !socketAuthenticated
+                ) {
                     finish(new Error(
                         message.message || "Authentication failed."
                     ));
@@ -746,20 +748,22 @@ function connectServer() {
             };
 
             socket.onerror = () => {
-                clearTimeout(timeout);
-                finish(new Error("Could not connect to multiplayer server."));
+                finish(new Error(
+                    "Could not connect to multiplayer server."
+                ));
             };
 
             socket.onclose = () => {
                 socketAuthenticated = false;
 
                 if (!finished) {
-                    clearTimeout(timeout);
                     finish(new Error("Connection closed."));
                 }
 
                 if (activeMission) {
                     showToast("CONNECTION LOST");
+                    activeMission = false;
+                    stopGame();
                 }
             };
 
@@ -783,7 +787,7 @@ async function runAction(type, data = {}) {
         await connectServer();
 
         if (type === "quick_match") {
-            // Current server.js has no quick_match command.
+            // This server version does not have a quick_match command.
             // Create a room instead.
             sendMessage("create_room");
         } else {
@@ -808,32 +812,27 @@ function handleServerMessage(message) {
             break;
 
         case "room_joined":
-            room = message.room || message;
-            renderLobby();
-            break;
-
         case "room_update":
             room = message.room || message;
             renderLobby();
             break;
 
         case "player_joined":
-            if (message.room) {
-                room = message.room;
-            }
-            renderLobby();
-            break;
-
         case "player_left":
-            if (message.room) {
-                room = message.room;
-            }
+            if (message.room) room = message.room;
             renderLobby();
             break;
 
         case "room_left":
             room = null;
-            lobbyBox.style.display = "none";
+
+            if (lobbyBox) lobbyBox.style.display = "none";
+
+            activeMission = false;
+            endingMission = false;
+            stopGame();
+            showMainMenu();
+
             setMenuStatus("YOU LEFT THE ROOM.");
             break;
 
@@ -841,12 +840,17 @@ function handleServerMessage(message) {
             activeMission = true;
             endingMission = false;
 
-            if (message.room) {
-                room = message.room;
-            }
+            snapshot = {
+                players: message.players || [],
+                bots: message.bots || [],
+                coins: message.coins || [],
+                timeLeft: getTimeInSeconds(message.timeLeft),
+                remainingBots: message.remainingBots ?? 0
+            };
 
             startGame();
             showToast("MISSION STARTED");
+            updateHUD();
             break;
 
         case "snapshot":
@@ -854,23 +858,42 @@ function handleServerMessage(message) {
                 players: message.players || [],
                 bots: message.bots || [],
                 coins: message.coins || [],
-                timeLeft: message.timeLeft ?? 0,
+                timeLeft: getTimeInSeconds(message.timeLeft),
                 remainingBots: message.remainingBots ?? 0
             };
 
             updateHUD();
             break;
 
-        case "attack_event":
-            addEffect(message.x, message.y, "shot");
+        case "attack_event": {
+            // Server sends { from: {x,y}, to: {x,y} }.
+            if (message.from && message.to) {
+                addShotEffect(
+                    message.from.x,
+                    message.from.y,
+                    message.to.x,
+                    message.to.y
+                );
+            }
+
+            if (message.killed) {
+                showToast("BOT ELIMINATED");
+            }
             break;
+        }
 
         case "bot_hit":
-            addEffect(message.x, message.y, "hit");
+            if (Number.isFinite(message.x) &&
+                Number.isFinite(message.y)) {
+                addEffect(message.x, message.y, "hit");
+            }
             break;
 
         case "special_event":
-            addEffect(message.x, message.y, "special");
+            if (Number.isFinite(message.x) &&
+                Number.isFinite(message.y)) {
+                addEffect(message.x, message.y, "special");
+            }
             screenShake = 0.3;
             break;
 
@@ -943,11 +966,7 @@ function renderLobby() {
         const status = player.ready ? "READY" : "NOT READY";
 
         row.innerHTML = `
-            <span>
-                ${name}
-                ${isHost ? " ★ HOST" : ""}
-            </span>
-
+            <span>${name}${isHost ? " ★ HOST" : ""}</span>
             <span class="${player.ready ? "mp-ready" : "mp-not-ready"}">
                 ${status}
             </span>
@@ -1028,37 +1047,50 @@ function createStage() {
     ctx = canvas.getContext("2d");
 
     $("mpExit").addEventListener("click", () => {
-        sendMessage("leave_room");
         activeMission = false;
+        pointerDown = false;
         stopGame();
+        sendMessage("leave_room");
         stage.style.display = "none";
+        showMainMenu();
     });
 
     $("mpReturn").addEventListener("click", () => {
         $("mpResult").style.display = "none";
         stage.style.display = "none";
         endingMission = false;
+
+        // If the room still exists, show its lobby again.
+        showMainMenu();
+
+        if (room) {
+            lobbyBox.style.display = "block";
+        }
     });
 
-    canvas.addEventListener("mousemove", event => {
-        const rect = canvas.getBoundingClientRect();
-
-        mouseX = event.clientX - rect.left;
-        mouseY = event.clientY - rect.top;
-
+    canvas.addEventListener("pointermove", event => {
+        updatePointerPosition(event);
         updateAim();
     });
 
-    canvas.addEventListener("mousedown", event => {
+    canvas.addEventListener("pointerdown", event => {
         if (event.button !== 0 || !activeMission) return;
 
-        pointerDown = true;
+        event.preventDefault();
+
+        updatePointerPosition(event);
         updateAim();
-        sendMessage("attack", { angle: aimAngle });
+
+        pointerDown = true;
+
+        // Shoot immediately when the button is pressed.
+        fireWeapon(performance.now());
     });
 
-    window.addEventListener("mouseup", () => {
-        pointerDown = false;
+    window.addEventListener("pointerup", event => {
+        if (event.button === 0) {
+            pointerDown = false;
+        }
     });
 
     canvas.addEventListener("contextmenu", event => {
@@ -1069,8 +1101,17 @@ function createStage() {
     window.addEventListener("resize", resizeCanvas);
 }
 
-function resizeCanvas() {
+function updatePointerPosition(event) {
     if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+
+    mouseX = event.clientX - rect.left;
+    mouseY = event.clientY - rect.top;
+}
+
+function resizeCanvas() {
+    if (!canvas || !ctx) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
@@ -1087,22 +1128,19 @@ function startGame() {
     createStage();
 
     stage.style.display = "block";
+    $("mpResult").style.display = "none";
 
-    if (menu) {
-        menu.style.display = "none";
-    }
-
-    if (gameUI) {
-        gameUI.style.display = "none";
-    }
+    if (menu) menu.style.display = "none";
+    if (gameUI) gameUI.style.display = "none";
 
     keys.clear();
+    pointerDown = false;
 
+    lastShot = 0;
+    lastInputSend = 0;
     lastFrame = performance.now();
 
-    if (rafId) {
-        cancelAnimationFrame(rafId);
-    }
+    if (rafId) cancelAnimationFrame(rafId);
 
     rafId = requestAnimationFrame(gameLoop);
 }
@@ -1118,7 +1156,7 @@ function stopGame() {
 }
 
 /* =========================================================
-   INPUT
+   INPUT + SHOOTING
    ========================================================= */
 
 window.addEventListener("keydown", event => {
@@ -1177,15 +1215,44 @@ function readMovement() {
 
 function updateAim() {
     const me = getMyPlayer();
+
     if (!me || !canvas) return;
 
-    const screenX = window.innerWidth / 2;
-    const screenY = window.innerHeight / 2;
+    // The player is not always exactly at screen center,
+    // especially near the edges of the world.
+    const playerScreenX = me.x - camera.x;
+    const playerScreenY = me.y - camera.y;
 
-    const dx = mouseX - screenX;
-    const dy = mouseY - screenY;
+    const dx = mouseX - playerScreenX;
+    const dy = mouseY - playerScreenY;
 
     aimAngle = Math.atan2(dy, dx);
+}
+
+function fireWeapon(now) {
+    if (!activeMission || !pointerDown) return;
+
+    if (now - lastShot < SHOOT_COOLDOWN) return;
+
+    const me = getMyPlayer();
+    if (!me || me.downed) return;
+
+    updateAim();
+
+    // Send the latest aim angle before the attack command.
+    sendMessage("input", {
+        moveX: input.x,
+        moveY: input.y,
+        sprint: input.sprint,
+        angle: aimAngle
+    });
+
+    // Server handleAttack uses the player's current angle.
+    sendMessage("attack", {
+        angle: aimAngle
+    });
+
+    lastShot = now;
 }
 
 /* =========================================================
@@ -1193,18 +1260,24 @@ function updateAim() {
    ========================================================= */
 
 function updateHUD() {
+    if (!stage) return;
+
     const me = getMyPlayer();
-    if (!me) return;
 
-    const hp = Math.max(0, Number(me.hp ?? me.health ?? 100));
-    const coins = Number(me.coins || 0);
-    const kills = Number(me.kills || 0);
+    if (me) {
+        const hp = Math.max(
+            0,
+            Number(me.hp ?? me.health ?? 100)
+        );
 
-    $("mpHealthText").textContent = Math.round(hp);
-    $("mpHealthFill").style.width = `${Math.min(100, hp)}%`;
+        $("mpHealthText").textContent = Math.round(hp);
+        $("mpHealthFill").style.width =
+            `${Math.min(100, hp)}%`;
 
-    $("mpCoins").textContent = coins;
-    $("mpKills").textContent = kills;
+        $("mpCoins").textContent = Number(me.coins || 0);
+        $("mpKills").textContent = Number(me.kills || 0);
+    }
+
     $("mpBots").textContent = snapshot.remainingBots;
 
     $("mpTime").textContent = Math.max(
@@ -1224,8 +1297,27 @@ function addEffect(x, y, type) {
         x,
         y,
         type,
-        life: type === "special" ? 0.65 : 0.22,
-        maxLife: type === "special" ? 0.65 : 0.22
+        life: type === "special" ? 0.65 : 0.25,
+        maxLife: type === "special" ? 0.65 : 0.25
+    });
+}
+
+function addShotEffect(x1, y1, x2, y2) {
+    if (
+        !Number.isFinite(x1) ||
+        !Number.isFinite(y1) ||
+        !Number.isFinite(x2) ||
+        !Number.isFinite(y2)
+    ) return;
+
+    effects.push({
+        type: "shot",
+        x: x1,
+        y: y1,
+        x2,
+        y2,
+        life: 0.12,
+        maxLife: 0.12
     });
 }
 
@@ -1252,14 +1344,20 @@ function gameLoop(now) {
         lastInputSend = now;
     }
 
+    // Holding the left mouse button repeatedly fires.
+    if (pointerDown) {
+        fireWeapon(now);
+    }
+
     updateCamera();
+    updateAim();
     updateEffects(dt);
-    drawGame(dt);
+    drawGame();
 
     if (toastTimer > 0) {
         toastTimer -= dt;
-        const toast = $("mpToast");
 
+        const toast = $("mpToast");
         toast.textContent = toastText;
         toast.style.opacity = toastTimer > 0 ? "1" : "0";
     }
@@ -1272,7 +1370,6 @@ function gameLoop(now) {
 
 function updateCamera() {
     const me = getMyPlayer();
-
     if (!me) return;
 
     const width = window.innerWidth;
@@ -1280,18 +1377,12 @@ function updateCamera() {
 
     camera.x = Math.max(
         0,
-        Math.min(
-            WORLD.width - width,
-            me.x - width / 2
-        )
+        Math.min(WORLD.width - width, me.x - width / 2)
     );
 
     camera.y = Math.max(
         0,
-        Math.min(
-            WORLD.height - height,
-            me.y - height / 2
-        )
+        Math.min(WORLD.height - height, me.y - height / 2)
     );
 }
 
@@ -1334,13 +1425,16 @@ function drawGame() {
     ctx.restore();
 
     if (damageFlash > 0) {
-        ctx.fillStyle = `rgba(255, 35, 65, ${damageFlash * 0.45})`;
+        ctx.fillStyle =
+            `rgba(255, 35, 65, ${damageFlash * 0.45})`;
+
         ctx.fillRect(0, 0, width, height);
     }
 }
 
 function drawBackground() {
     ctx.fillStyle = "#07101d";
+
     ctx.fillRect(
         -camera.x,
         -camera.y,
@@ -1402,7 +1496,6 @@ function drawCoins() {
         ctx.shadowColor = "#ffbb22";
         ctx.shadowBlur = 15;
         ctx.fill();
-
         ctx.shadowBlur = 0;
     });
 }
@@ -1413,7 +1506,6 @@ function drawBots() {
 
         const x = bot.x - camera.x;
         const y = bot.y - camera.y;
-
         const radius = bot.radius || 17;
 
         ctx.beginPath();
@@ -1423,10 +1515,12 @@ function drawBots() {
 
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
+
+        // The server sends bot.kind, not bot.type.
         ctx.fillStyle =
-            bot.type === "brute"
+            bot.kind === "brute"
                 ? "#a83e57"
-                : bot.type === "scout"
+                : bot.kind === "scout"
                     ? "#df914d"
                     : "#a44bd0";
 
@@ -1437,13 +1531,21 @@ function drawBots() {
         ctx.stroke();
 
         const maxHp = bot.maxHp || bot.hp || 100;
-        const hpPercent = Math.max(0, bot.hp / maxHp);
+        const hpPercent = Math.max(
+            0,
+            Math.min(1, bot.hp / maxHp)
+        );
 
         ctx.fillStyle = "#321722";
         ctx.fillRect(x - 19, y - radius - 12, 38, 4);
 
         ctx.fillStyle = "#ff526c";
-        ctx.fillRect(x - 19, y - radius - 12, 38 * hpPercent, 4);
+        ctx.fillRect(
+            x - 19,
+            y - radius - 12,
+            38 * hpPercent,
+            4
+        );
     });
 }
 
@@ -1457,9 +1559,11 @@ function drawPlayers() {
 
         ctx.beginPath();
         ctx.arc(x, y, radius + 7, 0, Math.PI * 2);
+
         ctx.fillStyle = isMe
             ? "rgba(70, 190, 255, .14)"
             : "rgba(80, 255, 180, .12)";
+
         ctx.fill();
 
         ctx.beginPath();
@@ -1481,15 +1585,17 @@ function drawPlayers() {
             ? aimAngle
             : Number(player.angle || 0);
 
+        // Weapon / aiming direction.
         ctx.beginPath();
         ctx.moveTo(x, y);
         ctx.lineTo(
-            x + Math.cos(angle) * 27,
-            y + Math.sin(angle) * 27
+            x + Math.cos(angle) * 30,
+            y + Math.sin(angle) * 30
         );
 
         ctx.strokeStyle = "#d9f5ff";
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 5;
+        ctx.lineCap = "round";
         ctx.stroke();
 
         ctx.fillStyle = "#eaf7ff";
@@ -1514,14 +1620,39 @@ function drawEffects() {
         const x = effect.x - camera.x;
         const y = effect.y - camera.y;
 
-        const progress = 1 - effect.life / effect.maxLife;
+        const progress =
+            1 - effect.life / effect.maxLife;
+
+        if (effect.type === "shot") {
+            ctx.beginPath();
+
+            ctx.moveTo(x, y);
+            ctx.lineTo(
+                effect.x2 - camera.x,
+                effect.y2 - camera.y
+            );
+
+            ctx.strokeStyle =
+                `rgba(160, 225, 255, ${1 - progress})`;
+
+            ctx.lineWidth = 3;
+            ctx.shadowColor = "#50bfff";
+            ctx.shadowBlur = 12;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            return;
+        }
 
         if (effect.type === "special") {
             const radius = 230 * progress;
 
             ctx.beginPath();
             ctx.arc(x, y, radius, 0, Math.PI * 2);
-            ctx.strokeStyle = `rgba(65, 190, 255, ${1 - progress})`;
+
+            ctx.strokeStyle =
+                `rgba(65, 190, 255, ${1 - progress})`;
+
             ctx.lineWidth = 6;
             ctx.stroke();
 
@@ -1554,7 +1685,9 @@ function drawEffects() {
 function showMissionResult(message) {
     if (!stage) return;
 
-    const won = Boolean(message.won);
+    // Server sends result: "victory" or "defeat".
+    const won = message.result === "victory" ||
+        message.won === true;
 
     $("mpResultTitle").textContent = won
         ? "MISSION COMPLETE"
@@ -1573,7 +1706,6 @@ function showMissionResult(message) {
 
 onAuthStateChanged(auth, user => {
     signedInUser = user || null;
-    authReady = true;
 
     updateAuthButtons();
 
@@ -1581,6 +1713,8 @@ onAuthStateChanged(auth, user => {
         socket.close();
         socket = null;
         socketAuthenticated = false;
+        activeMission = false;
+        stopGame();
     }
 });
 
