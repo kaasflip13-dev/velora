@@ -1,51 +1,86 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="nl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#03040b">
-    <title>VÉLORA — The World That Listens</title>
+    <title>VÉLORA FPS — The World That Listens</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-    <div id="menu" class="menu">
+    <canvas id="game"></canvas>
+
+    <!-- HUD -->
+    <div id="hud" hidden>
+        <div id="vig"></div>
+        <div id="cross"></div>
+        <div id="hudL">
+            <div class="panel"><span class="lbl">MEMORIES</span><span id="memTxt">0 / 0</span></div>
+            <div class="panel"><span class="lbl">HEALTH</span><div class="bar"><div id="hpFill" class="fill"></div></div></div>
+            <div class="panel"><span class="lbl">ENERGY (SPRINT)</span><div class="bar"><div id="enFill" class="fill"></div></div></div>
+            <div class="panel" id="matesPanel" hidden><span class="lbl">TEAM</span><div id="mates"></div></div>
+        </div>
+        <div id="hudR">
+            <div class="panel"><span class="lbl">LEVEL</span><span id="lvlTxt">1</span></div>
+            <div class="panel"><span class="lbl">TIME</span><span id="timeTxt">0:00</span></div>
+            <div class="panel"><span class="lbl">COINS</span><span id="coinTxt">🪙 0</span></div>
+            <div class="panel"><span class="lbl">SHOCKWAVE [Q]</span><span id="swTxt">READY</span></div>
+        </div>
+        <canvas id="mini" width="190" height="190"></canvas>
+        <div id="msg"></div>
+    </div>
+
+    <!-- MENU -->
+    <div id="menu" class="overlay menu">
         <div class="menu-content">
-            <div class="game-logo">
-                <h1>VÉLORA</h1>
-                <p>THE WORLD THAT LISTENS</p>
+            <h1>VÉLORA</h1>
+            <div class="sub">FPS — THE WORLD THAT LISTENS</div>
+
+            <div id="loginArea">
+                <button id="googleButton" class="btn">SIGN IN WITH GOOGLE</button>
+                <div id="loginStatus" class="status"></div>
             </div>
-
-            <div class="menu-subtitle">AN UNKNOWN WORLD AWAITS</div>
-
-            <div id="loginArea" class="auth-area">
-                <button id="googleButton" class="menu-button">SIGN IN WITH GOOGLE</button>
-                <div id="loginStatus" class="menu-message"></div>
-            </div>
-
             <div id="loggedInArea" hidden>
                 <div id="playerName"></div>
-                <div id="playerEmail"></div>
-                <button id="logoutButton" class="menu-button">SIGN OUT</button>
+                <button id="logoutButton" class="btn">SIGN OUT</button>
             </div>
 
-            <button id="startButton" class="main-button">ENTER THE WORLD</button>
-            <button id="newGameButton" class="menu-button">NEW GAME</button>
+            <h2>SOLO</h2>
+            <div id="levels"></div>
 
-            <div class="objective">FIND THE LOST MEMORIES</div>
-            <div class="menu-footer">A WORLD WITHOUT SOUND IS A WORLD WITHOUT FORM</div>
+            <h2>CO-OP MULTIPLAYER (1–4)</h2>
+            <div id="mpOffline">
+                <button id="mpCreate" class="btn">ROOM MAKEN</button>
+                <input id="mpCode" maxlength="6" placeholder="CODE" autocomplete="off">
+                <button id="mpJoin" class="btn">JOIN</button>
+                <div id="mpStatus" class="status"></div>
+            </div>
+            <div id="mpLobby" hidden>
+                <div class="status">ROOM CODE</div>
+                <div id="mpRoomCode"></div>
+                <div id="mpPlayers"></div>
+                <div id="mpHostControls" hidden>
+                    <select id="mpLevel"></select>
+                    <button id="mpStart" class="btn main">START</button>
+                </div>
+                <div id="mpWait" class="status" hidden>Wachten op de host…</div>
+                <button id="mpLeave" class="btn">ROOM VERLATEN</button>
+            </div>
+
+            <div class="controls">
+                <b>WASD</b> lopen · <b>SHIFT</b> sprinten · <b>MUIS</b> kijken · <b>LINKERMUISKNOP</b> schieten<br>
+                <b>Q</b> shockwave · <b>ESC</b> pauze · zonder muis-lock: <b>pijltjes</b> of rechtermuisknop slepen<br>
+                Verzamel alle herinneringen en stap in de portal.
+            </div>
         </div>
 
         <section class="leaderboard">
             <h2>GLOBAL LEADERBOARD</h2>
             <p>THE EXPLORERS OF VÉLORA</p>
-
-            <div id="playersList">
-                <div class="leaderboard-loading">Loading explorers...</div>
-            </div>
-
+            <div id="playersList"><div class="leaderboard-loading">Sign in to see the players.</div></div>
             <div class="anti-cheat-warning">
                 <span class="anti-cheat-title">⚠ ANTI-CHEAT WARNING</span>
                 <p>Using hacks, exploits, or cheats to climb the leaderboard may result in a permanent ban from VÉLORA.</p>
@@ -54,60 +89,24 @@
         </section>
     </div>
 
-    <div id="gameUI" hidden>
-        <canvas id="game"></canvas>
-
-        <div class="hud">
-            <div class="hud-left">
-                <div class="hud-panel">
-                    <span class="hud-label">MEMORIES</span>
-                    <span id="crystalCount">0 / 5</span>
-                </div>
-
-                <div class="hud-panel">
-                    <span class="hud-label">HEALTH</span>
-                    <div class="bar">
-                        <div id="healthBar" class="bar-fill health-fill"></div>
-                    </div>
-                </div>
-
-                <div class="hud-panel">
-                    <span class="hud-label">ENERGY</span>
-                    <div class="bar">
-                        <div id="energyBar" class="bar-fill energy-fill"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="hud-right">
-                <div class="hud-panel">
-                    <span class="hud-label">COINS</span>
-                    <span id="coinsDisplay">🪙 0</span>
-                </div>
-
-                <div class="hud-panel">
-                    <span class="hud-label">SHOCKWAVE</span>
-                    <span id="cooldown">READY</span>
-                </div>
-            </div>
-        </div>
-
-        <div id="hint" class="game-message"></div>
-        <div id="message" class="game-message" role="status" aria-live="polite"></div>
+    <div id="pause" class="overlay" hidden>
+        <h2 id="pauseTitle">PAUZE</h2>
+        <p id="pauseNote" class="status"></p>
+        <button class="btn main" id="resumeBtn">VERDER SPELEN</button>
+        <button class="btn" id="quitBtn">NAAR MENU</button>
     </div>
 
-    <div id="winScreen" class="overlay" hidden>
-        <div class="overlay-content">
-            <h2>MEMORIES RESTORED</h2>
-            <p>You have brought light back to VÉLORA.</p>
-            <button id="restartButton" class="main-button">PLAY AGAIN</button>
+    <div id="end" class="overlay" hidden>
+        <h2 id="endTitle"></h2>
+        <p id="endText"></p>
+        <div>
+            <button class="btn main" id="endMain"></button>
+            <button class="btn" id="endMenu">MENU</button>
         </div>
     </div>
 
-    <!-- Single-player -->
+    <!-- three.js (klassiek script) + de game (ES modules; host via http, niet file://) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script type="module" src="./app.js"></script>
-
-    <!-- Multiplayer -->
-    <script type="module" src="./multiplayer.js"></script>
 </body>
 </html>
